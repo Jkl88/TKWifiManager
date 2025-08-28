@@ -45,7 +45,7 @@ public:
 
     // formatFSIfNeeded=true Ч смонтировать FS c форматированием при первом фейле
     // apSsidPrefix Ч префикс SSID точки, суффикс MAC добавитс€ автоматически
-    bool begin(bool formatFSIfNeeded = true, const char* apSsidPrefix = "TK-Setup");
+    bool begin(bool formatFSIfNeeded = true, const String& apSsidPrefix = "TK-Setup");
     void loop();
 
     // доступ к веб-объектам/состо€нию
@@ -79,6 +79,7 @@ private:
     bool            _captiveMode = false;
     String          _apSsid;      // уникальный SSID (prefix-XXXXXX)
     bool            _fsOk = false;
+    String _apSsidPrefix;
     // upload (состо€ние multipart)
     File   _uploadFile;
     String _uploadToPath; // полный итоговый путь файла дл€ ответа
@@ -96,7 +97,7 @@ private:
     int   findBySsid(const String& ssid) const;
 
     bool  tryConnectBestKnown(uint32_t timeoutMs = 12000);
-    void  startAPCaptive(const char* prefix = "TK-Setup");
+    void  startAPCaptive();
 
     // ==== роутинг/обработчики ====
     void setupRoutes();

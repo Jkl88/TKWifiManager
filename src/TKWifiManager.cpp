@@ -334,7 +334,8 @@ TKWifiManager::TKWifiManager(uint16_t httpPort)
     : _httpPort(httpPort), _server(httpPort), _ws(TKWM_WS_PORT) {
 }
 
-bool TKWifiManager::begin(bool formatFSIfNeeded, const char* apSsidPrefix) {
+bool TKWifiManager::begin(bool formatFSIfNeeded, String& apSsidPrefix) {
+    _apSsidPrefix = apSsidPrefix;
 #if TKWM_USE_LITTLEFS
     Serial.println(F("[TKWM] FS = LittleFS"));
 #else
@@ -443,14 +444,14 @@ bool TKWifiManager::tryConnectBestKnown(uint32_t timeoutMs) {
     return false;
 }
 
-void TKWifiManager::startAPCaptive(const char* prefix) {
+void TKWifiManager::startAPCaptive() {
     _captiveMode = true;
 
     // уникальный SSID: <prefix>-XXXXXX
     if (!_apSsid.length()) {
         uint32_t suf = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFF);
         char macs[7]; snprintf(macs, sizeof(macs), "%06X", suf);
-        _apSsid = String(prefix) + "-" + macs;
+        _apSsid = _apSsidPrefix + "-" + macs;
     }
 
     WiFi.mode(WIFI_AP_STA);
