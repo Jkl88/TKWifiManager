@@ -227,7 +227,7 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
 
   // ВАЖНО: передайте префикс SSID — он сохранится и будет использоваться при ручном старте AP
-  wifiMgr.begin(/*formatFS=*/true, /*apSsidPrefix=*/"DemoTKWM");
+  wifiMgr.begin(/*apSsidPrefix=*/"DemoTKWM", /*formatFS=*/true);
 
   // Подключаем свои HTTP-маршруты
   setupCustomRoutes();

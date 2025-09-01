@@ -45,7 +45,7 @@ public:
 
     // formatFSIfNeeded=true Ч смонтировать FS c форматированием при первом фейле
     // apSsidPrefix Ч префикс SSID точки, суффикс MAC добавитс€ автоматически
-    bool begin(bool formatFSIfNeeded = true, const String& apSsidPrefix = "TK-Setup");
+    bool begin(const String& apSsidPrefix = "TK-Setup", bool formatFSIfNeeded = true);
     void loop();
 
     // доступ к веб-объектам/состо€нию

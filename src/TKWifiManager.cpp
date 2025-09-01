@@ -334,7 +334,7 @@ TKWifiManager::TKWifiManager(uint16_t httpPort)
     : _httpPort(httpPort), _server(httpPort), _ws(TKWM_WS_PORT) {
 }
 
-bool TKWifiManager::begin(bool formatFSIfNeeded, String& apSsidPrefix) {
+bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
     _apSsidPrefix = apSsidPrefix;
 #if TKWM_USE_LITTLEFS
     Serial.println(F("[TKWM] FS = LittleFS"));
