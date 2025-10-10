@@ -21,7 +21,7 @@
 #define TKWM_FS SPIFFS
 #endif
 
-// ===== Настройки =====
+// ===== РќР°СЃС‚СЂРѕР№РєРё =====
 #ifndef TKWM_WS_PORT
 #define TKWM_WS_PORT 81
 #endif
@@ -43,54 +43,54 @@ public:
     
     explicit TKWifiManager(uint16_t httpPort = 80);
 
-    // formatFSIfNeeded=true — смонтировать FS c форматированием при первом фейле
-    // apSsidPrefix — префикс SSID точки, суффикс MAC добавится автоматически
+    // formatFSIfNeeded=true вЂ” СЃРјРѕРЅС‚РёСЂРѕРІР°С‚СЊ FS c С„РѕСЂРјР°С‚РёСЂРѕРІР°РЅРёРµРј РїСЂРё РїРµСЂРІРѕРј С„РµР№Р»Рµ
+    // apSsidPrefix вЂ” РїСЂРµС„РёРєСЃ SSID С‚РѕС‡РєРё, СЃСѓС„С„РёРєСЃ MAC РґРѕР±Р°РІРёС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё
     bool begin(const String& apSsidPrefix = "TK-Setup", bool formatFSIfNeeded = true);
     void loop();
 
-    // доступ к веб-объектам/состоянию
+    // РґРѕСЃС‚СѓРї Рє РІРµР±-РѕР±СЉРµРєС‚Р°Рј/СЃРѕСЃС‚РѕСЏРЅРёСЋ
     WebServer& web() { return _server; }
     WebSocketsServer& ws() { return _ws; }
     bool inCaptive()  const { return _captiveMode; }
     IPAddress ip()    const { return _captiveMode ? WiFi.softAPIP() : WiFi.localIP(); }
 
-    // возможность добавить свои роуты
+    // РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РґРѕР±Р°РІРёС‚СЊ СЃРІРѕРё СЂРѕСѓС‚С‹
     using Route = std::function<void(void)>;
     void addRoute(const String& path, HTTPMethod method, Route handler) {
         _server.on(path.c_str(), method, handler);
     }
 
-    // хук для пользовательских WS сообщений (не «scan/status»)
+    // С…СѓРє РґР»СЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёС… WS СЃРѕРѕР±С‰РµРЅРёР№ (РЅРµ В«scan/statusВ»)
     using WsHook = std::function<void(uint8_t, WStype_t, const uint8_t*, size_t)>;
     void setUserWsHook(WsHook h) { _userWsHook = std::move(h); }
 
 private:
-    // ===== хранилище сетей =====
+    // ===== С…СЂР°РЅРёР»РёС‰Рµ СЃРµС‚РµР№ =====
     struct Cred { String ssid, pass; };
     Preferences _prefs;
     Cred        _creds[TKWM_MAX_CRED];
     int         _credN = 0;
 
-    // ===== веб =====
+    // ===== РІРµР± =====
     uint16_t        _httpPort;
     WebServer       _server;
     WebSocketsServer _ws;
     DNSServer       _dns;
     bool            _captiveMode = false;
-    String          _apSsid;      // уникальный SSID (prefix-XXXXXX)
+    String          _apSsid;      // СѓРЅРёРєР°Р»СЊРЅС‹Р№ SSID (prefix-XXXXXX)
     bool            _fsOk = false;
     String _apSsidPrefix;
-    // upload (состояние multipart)
+    // upload (СЃРѕСЃС‚РѕСЏРЅРёРµ multipart)
     File   _uploadFile;
-    String _uploadToPath; // полный итоговый путь файла для ответа
+    String _uploadToPath; // РїРѕР»РЅС‹Р№ РёС‚РѕРіРѕРІС‹Р№ РїСѓС‚СЊ С„Р°Р№Р»Р° РґР»СЏ РѕС‚РІРµС‚Р°
 
     // UDP discovery
     WiFiUDP _udp;
 
-    // пользовательский WS-хук
+    // РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёР№ WS-С…СѓРє
     WsHook _userWsHook = nullptr;
 
-    // ===== внутреннее =====
+    // ===== РІРЅСѓС‚СЂРµРЅРЅРµРµ =====
     void  loadCreds();
     void  saveCount();
     void  saveAt(int idx, const String& ssid, const String& pass);
@@ -99,7 +99,7 @@ private:
     bool  tryConnectBestKnown(uint32_t timeoutMs = 12000);
     void  startAPCaptive();
 
-    // ==== роутинг/обработчики ====
+    // ==== СЂРѕСѓС‚РёРЅРі/РѕР±СЂР°Р±РѕС‚С‡РёРєРё ====
     void setupRoutes();
     void setupWebSocket();
 
@@ -109,32 +109,32 @@ private:
     // Captive detectors
     void handleCaptiveProbe();
 
-    // FS API + страницы
+    // FS API + СЃС‚СЂР°РЅРёС†С‹
     void handleFsList();
     void handleFsGet();
     void handleFsPut();
     void handleFsDelete();
     void handleFsMkdir();
     void handleUpload();     // multipart body handler
-    void handleUploadDone(); // финальный ответ
+    void handleUploadDone(); // С„РёРЅР°Р»СЊРЅС‹Р№ РѕС‚РІРµС‚
 
     // OTA
     void handleOtaPage();
     void handleOtaUpload();
     void handleOtaFinish();
 
-    // Wi-Fi API/страницы
+    // Wi-Fi API/СЃС‚СЂР°РЅРёС†С‹
     void handleWifiPage();
     void handleWifiSave();
-    void handleReconnect();   // принудительный подбор лучшей сети
-    void handleStartAP();     // вернуться в AP
+    void handleReconnect();   // РїСЂРёРЅСѓРґРёС‚РµР»СЊРЅС‹Р№ РїРѕРґР±РѕСЂ Р»СѓС‡С€РµР№ СЃРµС‚Рё
+    void handleStartAP();     // РІРµСЂРЅСѓС‚СЊСЃСЏ РІ AP
     void handleWifiListSaved();  // GET /api/wifi/saved
     void handleWifiDelete();     // POST /api/wifi/delete (ssid=...)
 
 
-    // WS служебное
+    // WS СЃР»СѓР¶РµР±РЅРѕРµ
     void wsSendStatus(uint8_t clientId);
-    void wsRunScanAndPublish(); // sync scan (AP не выключаем)
+    void wsRunScanAndPublish(); // sync scan (AP РЅРµ РІС‹РєР»СЋС‡Р°РµРј)
 
     // UDP discovery
     void udpTick();
@@ -146,9 +146,9 @@ private:
     bool streamIfExists(const String& uri);
     void sendUpload404(const String& missingPath);
 
-    // Встроенные страницы (если в FS нет файлов)
+    // Р’СЃС‚СЂРѕРµРЅРЅС‹Рµ СЃС‚СЂР°РЅРёС†С‹ (РµСЃР»Рё РІ FS РЅРµС‚ С„Р°Р№Р»РѕРІ)
     static const char* builtinIndex();
-    static const char* builtinWifi(); // WS-сканер
+    static const char* builtinWifi(); // WS-СЃРєР°РЅРµСЂ
     static const char* builtinFs();
     static const char* builtinOta();
 };
