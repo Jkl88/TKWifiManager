@@ -90,6 +90,7 @@ private:
     // пользовательский WS-хук
     WsHook _userWsHook = nullptr;
 
+
     // ===== внутреннее =====
     void  loadCreds();
     void  saveCount();
