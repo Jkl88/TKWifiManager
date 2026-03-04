@@ -6,22 +6,26 @@ static const char WIFI_HTML[] PROGMEM = R"HTML(<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Wi-Fi настройка</title>
+<script>(function(){try{var t=localStorage.getItem('tkwm-theme');if(t&&t!=='system')document.documentElement.dataset.theme=t;}catch(_){}})()</script>
 <style>
-:root{--bg:#0b1220;--card:#0d1728;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057}
+:root{--bg:#0b1220;--card:#0d1728;--surface:#0f1a2c;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--link:#9fd0ff;--ok:#95ffa1;--err:#ff9a9a}
+:root[data-theme="light"]{--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}
+@media(prefers-color-scheme:light){:root:not([data-theme]){--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,Roboto}
 .wrap{max-width:860px;margin:auto;padding:20px}
 .card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
 h1{font-size:18px;margin:0 0 12px}
 h2{font-size:16px;margin:14px 0 8px}
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink)}
+input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:var(--surface);color:var(--ink)}
 button{background:var(--btn);cursor:pointer}
+a{color:var(--link);text-decoration:none}
 .list{margin-top:12px}
-.net{display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--br);border-radius:10px;margin:8px 0;background:#0f1a2c;cursor:pointer}
+.net{display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--br);border-radius:10px;margin:8px 0;background:var(--surface);cursor:pointer}
 .net small{color:var(--mut)}
 .badge{color:var(--mut);font-size:12px}
-.ok{color:#95ffa1}.err{color:#ff9a9a}.mut{color:#9fb3d1}
-</style></head><body><div class="wrap"><div class="card">
+.ok{color:var(--ok)}.err{color:var(--err)}.mut{color:var(--mut)}
+</style><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script></head><body><div class="wrap"><div class="card">
 <h1>Настройка Wi-Fi</h1>
 
 <div class="row">
@@ -145,26 +149,30 @@ connectWS();
 static const char FS_HTML[] PROGMEM = R"HTML(<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Файлы (LittleFS)</title>
+<title>Файлы</title>
+<script>(function(){try{var t=localStorage.getItem('tkwm-theme');if(t&&t!=='system')document.documentElement.dataset.theme=t;}catch(_){}})()</script>
 <style>
-:root{--bg:#0b1220;--card:#0d1728;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057}
+:root{--bg:#0b1220;--card:#0d1728;--surface:#0f1a2c;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--link:#9fd0ff;--ok:#95ffa1;--err:#ff9a9a}
+:root[data-theme="light"]{--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}
+@media(prefers-color-scheme:light){:root:not([data-theme]){--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px system-ui,-apple-system,Segoe UI,Roboto}
 .wrap{display:grid;grid-template-columns:340px 1fr;min-height:100vh}
 .side{border-right:1px solid var(--br);padding:14px}.main{padding:14px}
 h1{font-size:18px;margin:0 0 10px}
-input,button{padding:8px 10px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink)}
+input,button{padding:8px 10px;border-radius:10px;border:1px solid var(--br);background:var(--surface);color:var(--ink)}
 button{background:var(--btn);cursor:pointer}
+a{color:var(--link);text-decoration:none}
 .list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
-.item{display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--br);border-radius:10px;padding:8px;background:#0f1a2c}
+.item{display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--br);border-radius:10px;padding:8px;background:var(--surface)}
 .item .path{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
 .badge{color:var(--mut);font-size:12px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .tools{display:flex;gap:8px;align-items:center;margin:8px 0}
 #editor{position:relative;height:64vh;width:100%;border:1px solid var(--br);border-radius:12px}
 .mut{color:var(--mut)}hr{border:0;border-top:1px solid var(--br);margin:12px 0}
 .drop{border:2px dashed var(--br);border-radius:12px;padding:16px;text-align:center;margin-top:8px}
-.drop.drag{background:#0f1a2c}
+.drop.drag{background:var(--surface)}
 @media (max-width:900px){.wrap{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--br)}}
-</style></head><body>
+</style><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script></head><body>
 <div class="wrap">
   <div class="side">
     <h1>Файлы</h1>
@@ -272,16 +280,20 @@ static const char OTA_HTML[] PROGMEM = R"HTML(<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OTA обновление</title>
+<script>(function(){try{var t=localStorage.getItem('tkwm-theme');if(t&&t!=='system')document.documentElement.dataset.theme=t;}catch(_){}})()</script>
 <style>
-:root{--bg:#0b1220;--card:#0d1728;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--ok:#95ffa1;--err:#ff9a9a}
+:root{--bg:#0b1220;--card:#0d1728;--surface:#0f1a2c;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--link:#9fd0ff;--ok:#95ffa1;--err:#ff9a9a}
+:root[data-theme="light"]{--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}
+@media(prefers-color-scheme:light){:root:not([data-theme]){--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,Roboto}
 .wrap{max-width:720px;margin:auto;padding:20px}.card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
 h1{font-size:18px;margin:0 0 12px}
-input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink)}
+input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:var(--surface);color:var(--ink)}
 button{background:var(--btn);cursor:pointer}
-.bar{height:12px;border:1px solid var(--br);border-radius:999px;overflow:hidden;background:#0f1a2c;margin-top:10px}
+a{color:var(--link);text-decoration:none}
+.bar{height:12px;border:1px solid var(--br);border-radius:999px;overflow:hidden;background:var(--surface);margin-top:10px}
 .fill{height:100%;width:0%}.ok{color:var(--ok)}.err{color:var(--err)}.mut{color:var(--mut)}
-</style></head><body><div class="wrap"><div class="card">
+</style><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script></head><body><div class="wrap"><div class="card">
 <h1>OTA обновление прошивки</h1>
 <form id="f" class="row"><input id="bin" type="file" accept=".bin" required><button id="go">🚀 Обновить</button>
 <a class="mut" href="/">Главная</a>    <a class="mut" href="/fs">Файлы</a>    <a class="mut" href="/wifi">Wi-Fi</a></form>
@@ -303,13 +315,17 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TK Wi-Fi Manager</title>
+<script>(function(){try{var t=localStorage.getItem('tkwm-theme');if(t&&t!=='system')document.documentElement.dataset.theme=t;}catch(_){}})()</script>
 <style>
-:root{--bg:#0b1220;--card:#0d1728;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057}
+:root{--bg:#0b1220;--card:#0d1728;--surface:#0f1a2c;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--link:#9fd0ff;--ok:#95ffa1;--err:#ff9a9a}
+:root[data-theme="light"]{--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}
+@media(prefers-color-scheme:light){:root:not([data-theme]){--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,Roboto}
 .wrap{max-width:860px;margin:auto;padding:20px}.card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
-h1{font-size:18px;margin:0 0 12px}button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink);cursor:pointer}
+h1{font-size:18px;margin:0 0 12px}button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:var(--surface);color:var(--ink);cursor:pointer}
+a{color:var(--link);text-decoration:none}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-</style></head><body><div class="wrap"><div class="card">
+</style><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script></head><body><div class="wrap"><div class="card">
 <h1>TK Wi-Fi Manager</h1>
 <div id="st" class="mut">...</div>
 <div class="row" style="margin-top:10px">
@@ -355,7 +371,7 @@ bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
 
     // Попробуем подключиться к лучшей из известных
     bool staOk = tryConnectBestKnown();
-    if (!staOk) startAPCaptive(apSsidPrefix);
+    if (!staOk) startAPCaptive();
 
     // Маршруты и WS
     setupRoutes();
@@ -382,7 +398,7 @@ void TKWifiManager::loop() {
     static uint32_t t = 0;
     if (!_captiveMode && millis() - t > 4000) {
         t = millis();
-        if (WiFi.status() != WL_CONNECTED) startAPCaptive(_apSsid.c_str()); // префикс уже содержит suffix — не критично
+        if (WiFi.status() != WL_CONNECTED) startAPCaptive();
     }
 }
 
@@ -478,6 +494,7 @@ void TKWifiManager::setupRoutes() {
     _server.on("/api/start_ap", HTTP_POST, [this] { handleStartAP(); });
     _server.on("/api/wifi/saved", HTTP_GET, [this] { handleWifiListSaved(); });
     _server.on("/api/wifi/delete", HTTP_POST, [this] { handleWifiDelete();    });
+    _server.on("/api/wifi/scan",  HTTP_GET,  [this] { handleWifiScan();      });
 
     // FS API
     _server.on("/api/fs/list", HTTP_GET, [this] { handleFsList();   });
@@ -593,7 +610,7 @@ void TKWifiManager::handleReconnect() {
 }
 
 void TKWifiManager::handleStartAP() {
-    startAPCaptive(_apSsid.c_str());
+    startAPCaptive();
     _server.send(200, "application/json", "{\"ok\":true}");
     String mode = "AP";
     String ipS = WiFi.softAPIP().toString();
@@ -658,16 +675,34 @@ void TKWifiManager::handleWifiDelete() {
 }
 
 // ===== FS API =====
+
+// Рекурсивный обход директорий для handleFsList
+static void fsListDir_(File dir, String& out, bool& first) {
+    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+        if (f.isDirectory()) {
+            fsListDir_(f, out, first);
+        } else {
+            if (!first) out += ",";
+            first = false;
+            out += F("{\"path\":\"");
+            // f.name() в LittleFS возвращает полный путь вида /dir/file.txt
+            const char* name = f.name();
+            for (; *name; ++name) {
+                if (*name == '\"' || *name == '\\') { out += '\\'; out += *name; }
+                else out += *name;
+            }
+            out += F("\",\"size\":"); out += String((uint32_t)f.size()); out += '}';
+        }
+        f.close();
+    }
+}
+
 void TKWifiManager::handleFsList() {
     if (!_fsOk) { _server.send(500, "application/json", "{\"files\":[]}"); return; }
     String out = "{\"files\":[";
     File root = TKWM_FS.open("/");
     bool first = true;
-    for (File f = root.openNextFile(); f; f = root.openNextFile()) {
-        if (!first) out += ",";
-        first = false;
-        out += "{\"path\":\""; out += f.name(); out += "\",\"size\":"; out += String((uint32_t)f.size()); out += "}";
-    }
+    fsListDir_(root, out, first);
     out += "]}";
     _server.send(200, "application/json", out);
 }
@@ -900,6 +935,37 @@ void TKWifiManager::handleNotFound() {
         return;
     }
     sendUpload404(uri);
+}
+
+// =================== /api/wifi/scan (REST polling) =====
+void TKWifiManager::handleWifiScan() {
+    ensureWifiForScan_();
+    int n = WiFi.scanNetworks(false, true);
+    bool connected = (WiFi.status() == WL_CONNECTED);
+    String out;
+    out.reserve(64 * max(n, 1) + 64);
+    out += F("{\"connected\":");
+    out += connected ? F("true") : F("false");
+    out += F(",\"ip\":\"");
+    out += connected ? WiFi.localIP().toString() : String("0.0.0.0");
+    out += F("\",\"nets\":[");
+    for (int i = 0; i < n; ++i) {
+        if (i) out += ',';
+        out += F("{\"ssid\":\"");
+        String s = WiFi.SSID(i);
+        for (size_t k = 0; k < s.length(); k++) {
+            char c = s[k];
+            if (c == '\"' || c == '\\') { out += '\\'; out += c; }
+            else if ((uint8_t)c < 0x20) { char esc[7]; snprintf(esc, sizeof(esc), "\\u%04X", (unsigned char)c); out += esc; }
+            else out += c;
+        }
+        out += F("\",\"rssi\":"); out += String(WiFi.RSSI(i));
+        out += F(",\"ch\":");     out += String(WiFi.channel(i));
+        out += F(",\"enc\":");    out += (WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? 0 : 1);
+        out += '}';
+    }
+    out += "]}";
+    _server.send(200, "application/json", out);
 }
 
 // =================== WebSocket helpers =================

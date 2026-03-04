@@ -4,20 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OTA обновление</title>
+<script>(function(){try{var t=localStorage.getItem('tkwm-theme');if(t&&t!=='system')document.documentElement.dataset.theme=t;}catch(_){}})()</script>
 <style>
-:root{--bg:#0b1220;--card:#0d1728;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--ok:#95ffa1;--err:#ff9a9a}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,Roboto}
-.wrap{max-width:720px;margin:auto;padding:20px}
-.card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
-h1{font-size:18px;margin:0 0 12px}
-input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink)}
-button{background:var(--btn);cursor:pointer}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.bar{height:12px;border:1px solid var(--br);border-radius:999px;overflow:hidden;background:#0f1a2c;margin-top:10px}
-.fill{height:100%;width:0%}
-.ok{color:var(--ok)} .err{color:var(--err)} .mut{color:var(--mut)}
-a{color:#9fd0ff;text-decoration:none}
+  /* Fallback-тема (если /theme.css не загружен в FS) */
+  :root {
+    --bg:      #0b1220;
+    --card:    #0d1728;
+    --surface: #0f1a2c;
+    --ink:     #e8eef7;
+    --mut:     #9fb3d1;
+    --br:      #1b2a44;
+    --btn:     #143057;
+    --link:    #9fd0ff;
+    --ok:      #95ffa1;
+    --err:     #ff9a9a;
+  }
+  :root[data-theme="light"] {
+    --bg:      #f0f4f8;
+    --card:    #ffffff;
+    --surface: #e4eaf2;
+    --ink:     #1a2236;
+    --mut:     #5a7090;
+    --br:      #c5d0e0;
+    --btn:     #2563eb;
+    --link:    #1d4ed8;
+    --ok:      #16a34a;
+    --err:     #dc2626;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      --bg:      #f0f4f8;
+      --card:    #ffffff;
+      --surface: #e4eaf2;
+      --ink:     #1a2236;
+      --mut:     #5a7090;
+      --br:      #c5d0e0;
+      --btn:     #2563eb;
+      --link:    #1d4ed8;
+      --ok:      #16a34a;
+      --err:     #dc2626;
+    }
+  }
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,Roboto}
+  .wrap{max-width:720px;margin:auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
+  h1{font-size:18px;margin:0 0 12px}
+  input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:var(--surface);color:var(--ink)}
+  button{background:var(--btn);cursor:pointer}
+  a{color:var(--link);text-decoration:none}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .bar{height:12px;border:1px solid var(--br);border-radius:999px;overflow:hidden;background:var(--surface);margin-top:10px}
+  .fill{height:100%;width:0%;background:var(--btn);transition:width .2s}
+  .ok{color:var(--ok)}
+  .err{color:var(--err)}
+  .mut{color:var(--mut)}
 </style>
+<!-- Тема из FS: загрузите /theme.css (цвета) и /theme.js (кнопка 🌙☀️💻) -->
+<link rel="stylesheet" href="/theme.css">
+<script src="/theme.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -37,31 +81,27 @@ a{color:#9fd0ff;text-decoration:none}
 </div>
 
 <script>
-const $=s=>document.querySelector(s);
-const form=$("#f"), bin=$("#bin"), go=$("#go"), fill=$("#fill"), log=$("#log");
+const $ = s => document.querySelector(s);
+const form = $("#f"), bin = $("#bin"), go = $("#go"), fill = $("#fill"), log = $("#log");
 
-form.addEventListener("submit", ev=>{
+form.addEventListener("submit", ev => {
   ev.preventDefault();
   const file = bin.files && bin.files[0];
   if (!file) return;
   go.disabled = true;
   log.textContent = "Загрузка...";
   const xhr = new XMLHttpRequest();
-  xhr.upload.onprogress = e=>{
-    if (e.lengthComputable) {
-      const p = Math.round(e.loaded*100/e.total);
-      fill.style.width = p+"%";
-    }
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) fill.style.width = Math.round(e.loaded * 100 / e.total) + "%";
   };
-  xhr.onreadystatechange = ()=>{
+  xhr.onreadystatechange = () => {
     if (xhr.readyState === 4) {
       go.disabled = false;
       if (xhr.status === 200) {
         fill.style.width = "100%";
         log.innerHTML = "<span class='ok'>Готово. Устройство перезагрузится...</span>";
-        // страница из прошивки сама отправит перезагрузку и редирект
       } else {
-        log.innerHTML = "<span class='err'>Ошибка: "+xhr.status+" "+xhr.statusText+"</span>";
+        log.innerHTML = `<span class='err'>Ошибка: ${xhr.status} ${xhr.statusText}</span>`;
       }
     }
   };

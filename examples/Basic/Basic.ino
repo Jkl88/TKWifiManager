@@ -130,8 +130,8 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // запускаем менеджер: формат FS при необходимости, префикс SSID для AP
-  wifiMgr.begin(/*formatFSIfNeeded*/true, /*apSsidPrefix*/"DemoTKWM");
+  // запускаем менеджер: префикс SSID для AP, формат FS при необходимости
+  wifiMgr.begin(/*apSsidPrefix*/"DemoTKWM", /*formatFSIfNeeded*/true);
 
   // наши роуты и WS-хук
   setupCustomRoutes();

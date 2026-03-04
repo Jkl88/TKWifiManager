@@ -131,6 +131,7 @@ private:
     void handleStartAP();     // вернуться в AP
     void handleWifiListSaved();  // GET /api/wifi/saved
     void handleWifiDelete();     // POST /api/wifi/delete (ssid=...)
+    void handleWifiScan();       // GET /api/wifi/scan  (REST-версия для polling-клиентов)
 
 
     // WS служебное

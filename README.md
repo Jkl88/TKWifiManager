@@ -1,276 +1,526 @@
-# TKWifiManager — README
+# TKWifiManager
 
-## Что умеет библиотека «из коробки»
-
-### Wi-Fi / Captive / сохранённые сети
-- **AP+Captive портал**: поднимает точку доступа `"<префикс>-<HEX_MAC>"`, DNS wildcard и редиректы (`/generate_204`, `/hotspot-detect.html`, `/ncsi.txt`) на `/wifi`.
-- **STA-подключение** к сохранённым сетям (N профилей), хранение в `Preferences`.
-- **Не рвёт AP при сканировании** — клиент не отваливается.
-- **Страница `/wifi`**: список найденных сетей (WS), ручной ввод SSID/пароля, список сохранённых сетей (удаление), кнопка «Перейти в AP-режим».
-
-### Файловая система (LittleFS по умолчанию)
-- Встроенный **менеджер файлов** `/fs`:
-  - список файлов;
-  - открыть/скачать/удалить;
-  - **редактор текстовых файлов** (Ace);
-  - drag&drop **загрузка в FS** (мультифайлы) через `/upload?to=/путь/имя`.
-- REST-эндпоинты `/api/fs/*`:
-  - `GET /api/fs/list` — список файлов;
-  - `GET /api/fs/get?path=/...` — отдать текст (безопасное JSON-экранирование, chunked);
-  - `POST /api/fs/put?path=/...` — создать/перезаписать текст;
-  - `POST /api/fs/delete` — удалить (body: `path=...`);
-  - `POST /api/fs/mkdir` — создать папку (опционально).
-
-### OTA (через веб)
-- Страница `/ota` (форма с прогресс-баром).
-- `POST /ota` — обработчик прошивки (`Update.begin/…/end`) + авто-ребут.
-- Логи и диагностика ошибок OTA (в HTML и Serial).
-
-### UDP-ответ («личный» ответ на broadcast)
-- Слушает UDP-запросы (например, `whois`/`discovery` на фиксированном порту) и **отвечает JSON-ом** с model/name/IP/версией.
-
-### Веб-сервер и WS
-- HTTP: `WebServer` (порт 80), **легко добавлять свои маршруты**.
-- WS: `WebSocketsServer` (порт 81), **пользовательский хук** для команд, плюс встроенные:
-  - входящие: `"status"`, `"scan"`;
-  - исходящие: `{"type":"status",...}` и `{"type":"scan","nets":[...]}`.
+Библиотека для ESP32 (Arduino framework): Wi-Fi менеджер с captive-порталом, файловым менеджером, OTA, UDP-discovery и расширяемым веб-сервером.
 
 ---
 
-## Список встроенных HTTP-роутов (по умолчанию)
+## Содержание
+
+- [Что умеет «из коробки»](#что-умеет-из-коробки)
+- [Быстрый старт](#быстрый-старт)
+- [PlatformIO](#platformio)
+- [HTTP-маршруты](#http-маршруты)
+- [WebSocket API](#websocket-api)
+- [Темы оформления (theme.css / theme.js)](#темы-оформления)
+- [Подмена встроенных страниц](#подмена-встроенных-страниц)
+- [Добавление своих HTTP-маршрутов](#добавление-своих-http-маршрутов)
+- [Пользовательский WS-хук](#пользовательский-ws-хук)
+- [Компиляционные макросы](#компиляционные-макросы)
+- [UDP-discovery](#udp-discovery)
+- [Полный пример](#полный-пример)
+- [Частые вопросы](#частые-вопросы)
+
+---
+
+## Что умеет «из коробки»
+
+### Wi-Fi / Captive / сохранённые сети
+
+- **AP + Captive-портал**: поднимает точку доступа `"<префикс>-<HEX_MAC>"`, DNS wildcard и редиректы (`/generate_204`, `/hotspot-detect.html`, `/ncsi.txt`) на `/wifi`.
+- **STA-подключение** к сохранённым сетям (до 16 профилей), хранение в `Preferences`.
+- **Не рвёт AP при сканировании** — подключённые клиенты не отваливаются.
+- **Страница `/wifi`**: список найденных сетей, ручной ввод SSID/пароля, список сохранённых сетей с удалением, кнопка «Перейти в AP-режим».
+- **Watchdog**: каждые 4 с в STA-режиме проверяет соединение; если пропало — автоматически поднимает AP.
+
+### Файловая система (LittleFS по умолчанию)
+
+- Встроенный **менеджер файлов** `/fs`:
+  - рекурсивный список файлов (включая поддиректории);
+  - открыть / скачать / удалить;
+  - **редактор текстовых файлов** с подсветкой синтаксиса (Ace Editor, CDN);
+  - drag-and-drop **загрузка в FS** через `/upload?to=/путь/имя`.
+- REST API `/api/fs/*`:
+  - `GET  /api/fs/list`         — JSON с рекурсивным списком файлов и размерами;
+  - `GET  /api/fs/get?path=/..` — содержимое текстового файла (chunked, JSON-экранирование);
+  - `POST /api/fs/put?path=/..` — создать / перезаписать файл;
+  - `POST /api/fs/delete`       — удалить файл (`body: path=...`);
+  - `POST /api/fs/mkdir`        — создать папку.
+
+### OTA (через браузер)
+
+- Страница `/ota` — форма с прогресс-баром.
+- `POST /ota` — загрузка `.bin`, `Update.begin/write/end`, авто-перезагрузка.
+
+### UDP-discovery
+
+- Слушает порт `TKWM_DISCOVERY_PORT` (по умолчанию `64242`).
+- На пакет с префиксом `"TK_DISCOVER:1"` отвечает JSON:
+  ```json
+  { "id": "MyDevice-A1B2C3", "name": "MyDevice-A1B2C3",
+    "ip": "192.168.1.50", "model": "ESP32", "web": "/" }
+  ```
+
+### Веб-сервер и WebSocket
+
+- HTTP: `WebServer` (порт 80), легко добавлять свои маршруты.
+- WS: `WebSocketsServer` (порт 81), встроенные команды + пользовательский хук.
+
+---
+
+## Быстрый старт
+
+```cpp
+#include "TKWifiManager.h"
+
+TKWifiManager wifiMgr(80);
+
+void setup() {
+    Serial.begin(115200);
+    // Первый аргумент — префикс SSID точки доступа
+    // Второй — форматировать FS если не монтируется (true по умолчанию)
+    wifiMgr.begin("MyDevice");
+}
+
+void loop() {
+    wifiMgr.loop();
+}
+```
+
+После загрузки: если нет сохранённых сетей — поднимается AP `MyDevice-XXXXXX`.  
+Откройте `http://192.168.4.1/wifi` для настройки.
+
+---
+
+## PlatformIO
+
+Библиотека работает **только с Arduino framework** на ESP32.  
+ESP-IDF native не поддерживается (используются `WebServer`, `Preferences`, `LittleFS`, `DNSServer`, `Update` — Arduino-обёртки).
+
+### platformio.ini (минимальный)
+
+```ini
+[env:esp32dev]
+platform  = espressif32
+board     = esp32dev
+framework = arduino
+
+board_build.partitions = min_spiffs.csv   ; минимум 1 МБ под LittleFS
+
+lib_deps =
+    links2004/WebSockets @ ^2.4.1
+
+build_flags =
+    -DTKWM_USE_LITTLEFS=1
+
+monitor_speed = 115200
+```
+
+### Загрузка файлов в LittleFS
+
+Положите файлы в папку `data/` и выполните:
+
+```
+pio run -e esp32dev_upload_fs -t uploadfs
+```
+
+---
+
+## HTTP-маршруты
 
 | Метод | Путь                   | Назначение |
 |------:|------------------------|------------|
-| GET   | `/`                    | Если AP/captive — редирект на `/wifi`. Иначе пытается отдать `/index.html` из FS; если нет — отдаёт встроенную «404-upload». |
-| GET   | `/wifi`                | Встроенная страница настройки Wi-Fi. |
-| GET   | `/fs`                  | Менеджер файлов. |
+| GET   | `/`                    | В AP-режиме → редирект на `/wifi`. Иначе → `/index.html` из FS или встроенная страница. |
+| GET   | `/wifi`                | Страница настройки Wi-Fi. |
+| GET   | `/fs`                  | Файловый менеджер. |
 | GET   | `/ota`                 | OTA-страница. |
-| GET   | `/api/fs/list`         | JSON со списком файлов. |
-| GET   | `/api/fs/get?path=/..` | Возвращает содержимое текстового файла. |
-| POST  | `/api/fs/put?path=/..` | Записывает текст в файл. |
-| POST  | `/api/fs/delete`       | Удаляет файл. |
-| POST  | `/api/fs/mkdir`        | Создаёт папку. |
-| POST  | `/upload?to=/path.ext` | Загружает файл в FS. |
-| POST  | `/api/wifi/save`       | Сохраняет профиль Wi-Fi и подключается. |
-| POST  | `/api/reconnect`       | Форсирует переподключение. |
-| POST  | `/api/start_ap`        | Переходит в AP-режим. |
-| GET   | `/api/wifi/saved`      | Список сохранённых сетей. |
-| POST  | `/api/wifi/delete`     | Удаляет сохранённую сеть. |
+| GET   | `/api/fs/list`         | JSON: рекурсивный список файлов `{"files":[{"path":"/...","size":N},...]}`. |
+| GET   | `/api/fs/get?path=/..` | Содержимое текстового файла. |
+| POST  | `/api/fs/put?path=/..` | Записать текст в файл. |
+| POST  | `/api/fs/delete`       | Удалить файл (`path=...`). |
+| POST  | `/api/fs/mkdir`        | Создать папку. |
+| POST  | `/upload?to=/path.ext` | Загрузить файл в FS (multipart). |
+| POST  | `/api/wifi/save`       | Сохранить профиль и подключиться (JSON body). |
+| GET   | `/api/wifi/scan`       | REST-сканирование сетей: `{"connected":bool,"ip":"...","nets":[...]}`. |
+| GET   | `/api/wifi/saved`      | Список сохранённых сетей `{"nets":["ssid1",...]}`. |
+| POST  | `/api/wifi/delete`     | Удалить сохранённую сеть (`ssid=...`). |
+| POST  | `/api/reconnect`       | Принудительное переподключение к лучшей известной сети. |
+| POST  | `/api/start_ap`        | Перейти в AP-режим. |
+| POST  | `/ota`                 | Загрузить прошивку `.bin`. |
+
+> **`/api/wifi/scan`** — REST-аналог WS-команды `"scan"`. Удобен для простых страниц без WebSocket (см. внешний `wifi.html` в FS).
 
 ---
 
-## WebSocket: входящие/исходящие
+## WebSocket API
 
 **Порт:** `ws://<host>:81/`
 
-Встроенные входящие:
-- `"status"` → `{"type":"status","mode":"AP|STA","ip":"..."}`
-- `"scan"` → `{"type":"scan","nets":[...]}`
+### Встроенные входящие команды (текст)
 
-Можно задать пользовательский обработчик через `setUserWsHook()`.
+| Команда    | Ответ библиотеки |
+|------------|-----------------|
+| `"status"` | `{"type":"status","mode":"AP\|STA","ip":"..."}` |
+| `"scan"`   | `{"type":"scan","nets":[{"ssid":"...","rssi":-70,"ch":6,"enc":0\|1},...]}` |
+
+### При подключении нового клиента
+
+Библиотека автоматически отправляет `{"type":"status",...}` новому клиенту.  
+> **Важно:** событие `WStype_CONNECTED` **не передаётся** в пользовательский хук — оно перехватывается библиотекой. Если вам нужно отреагировать на подключение, попросите клиент сразу после connect отправить текстовое сообщение (например, `"hello"`).
+
+### Пользовательский хук
+
+Всё, что не является `"scan"` или `"status"`, а также события `WStype_DISCONNECTED`, `WStype_BIN`, `WStype_PING/PONG` — попадают в хук:
+
+```cpp
+wifiMgr.setUserWsHook([](uint8_t id, WStype_t type, const uint8_t* payload, size_t len) {
+    if (type == WStype_DISCONNECTED) {
+        Serial.printf("клиент %u отключился\n", id);
+        return;
+    }
+    if (type != WStype_TEXT) return;
+    String s((char*)payload, len);
+
+    if (s == "ping") {
+        wifiMgr.ws().sendTXT(id, String("{\"type\":\"pong\",\"t\":") + millis() + "}");
+        return;
+    }
+    // ... ваши команды
+    wifiMgr.ws().sendTXT(id, "{\"type\":\"error\",\"msg\":\"unknown\"}");
+});
+```
+
+### Отправка из прошивки
+
+```cpp
+// одному клиенту
+wifiMgr.ws().sendTXT(clientId, "{\"type\":\"data\",\"v\":42}");
+
+// всем клиентам
+wifiMgr.ws().broadcastTXT("{\"type\":\"alert\",\"msg\":\"hello\"}");
+
+// бинарный фрейм
+uint8_t buf[] = {0x01, 0x02};
+wifiMgr.ws().broadcastBIN(buf, 2);
+```
+
+### Пример: периодический push данных с датчика
+
+```cpp
+uint32_t lastPush = 0;
+
+void loop() {
+    wifiMgr.loop();
+
+    if (millis() - lastPush > 1000) {
+        lastPush = millis();
+        float temp = readSensor();
+        String j = String("{\"type\":\"sensor\",\"temp\":") + temp + "}";
+        wifiMgr.ws().broadcastTXT(j);
+    }
+}
+```
 
 ---
 
-## AP-префикс
+## Темы оформления
 
-- `begin()` принимает `apSsidPrefix` и запоминает его.
-- `startAPCaptive()` использует `<prefix>-<MAC>`.
+Все встроенные страницы (`/`, `/wifi`, `/fs`, `/ota`) поддерживают **тёмную и светлую тему** через CSS-переменные.
+
+### Как это работает
+
+Каждая страница (и встроенная в прошивку, и из FS) содержит:
+
+1. Встроенный `<style>` с переменными (тёмная тема по умолчанию + `@media prefers-color-scheme`).
+2. `<link rel="stylesheet" href="/theme.css">` — подгружает ваш файл из FS (если загружен).
+3. `<script src="/theme.js">` — подгружает переключатель тем из FS (если загружен).
+
+### Уровни приоритета
+
+```
+Без файлов в FS:
+  → тёмная тема + системная (prefers-color-scheme) работает автоматически
+
+С /theme.css в FS:
+  → ваши цвета перекрывают встроенные
+
+С /theme.js в FS:
+  → кнопка 🌙 ☀️ 💻 в правом нижнем углу всех страниц
+  → выбор сохраняется в localStorage браузера
+```
+
+### CSS-переменные темы
+
+| Переменная  | Тёмная     | Светлая    | Назначение |
+|-------------|-----------|-----------|------------|
+| `--bg`      | `#0b1220` | `#f0f4f8` | Фон страницы |
+| `--card`    | `#0d1728` | `#ffffff` | Фон карточки/панели |
+| `--surface` | `#0f1a2c` | `#e4eaf2` | Фон полей ввода, элементов |
+| `--ink`     | `#e8eef7` | `#1a2236` | Основной текст |
+| `--mut`     | `#9fb3d1` | `#5a7090` | Второстепенный текст |
+| `--br`      | `#1b2a44` | `#c5d0e0` | Рамки и разделители |
+| `--btn`     | `#143057` | `#2563eb` | Фон кнопок |
+| `--link`    | `#9fd0ff` | `#1d4ed8` | Ссылки |
+| `--ok`      | `#95ffa1` | `#16a34a` | Успех / подключено |
+| `--err`     | `#ff9a9a` | `#dc2626` | Ошибка |
+
+### Загрузить в FS для активации переключателя
+
+```
+data/
+  theme.css   ← цвета (тёмная + светлая + [data-theme])
+  theme.js    ← кнопка-переключатель 🌙/☀️/💻
+```
+
+### Пример кастомного theme.css (только акценты, без смены тем)
+
+```css
+/* Фиолетовые кнопки поверх стандартной тёмной темы */
+:root {
+    --btn:  #7c3aed;
+    --link: #a78bfa;
+}
+```
 
 ---
 
 ## Подмена встроенных страниц
 
-Положите в FS файл `wifi.html`, `fs.html` или `ota.html` — и они заменят встроенные страницы.
+Загрузите в FS файл с соответствующим именем — сервер отдаст его вместо встроенного:
+
+| FS-файл       | Заменяет страницу |
+|---------------|-------------------|
+| `/index.html` | `/` (главная)     |
+| `/wifi.html`  | `/wifi`           |
+| `/fs.html`    | `/fs`             |
+| `/ota.html`   | `/ota`            |
+
+Готовые шаблоны с полной поддержкой тем лежат в папке `src/` репозитория.
 
 ---
 
 ## Добавление своих HTTP-маршрутов
 
 ```cpp
-wifiMgr.addRoute("/hello", HTTP_GET, [](){
-  wifiMgr.web().send(200, "text/plain", "Hello!");
+// В setup(), после wifiMgr.begin():
+
+wifiMgr.addRoute("/hello", HTTP_GET, []() {
+    String s = "Hello!\nIP: " + wifiMgr.ip().toString();
+    wifiMgr.web().send(200, "text/plain; charset=utf-8", s);
 });
-wifiMgr.addRoute("/api/something", HTTP_POST, [](){
-  String arg = wifiMgr.web().arg("foo");
-  wifiMgr.web().send(200, "application/json", "{\"ok\":true}");
+
+wifiMgr.addRoute("/api/data", HTTP_GET, []() {
+    String json = "{\"temp\":23.5,\"hum\":60}";
+    wifiMgr.web().send(200, "application/json", json);
+});
+
+wifiMgr.addRoute("/api/cmd", HTTP_POST, []() {
+    String body = wifiMgr.web().arg("plain"); // JSON-тело
+    // или wifiMgr.web().arg("param")          // form-параметр
+    wifiMgr.web().send(200, "application/json", "{\"ok\":true}");
 });
 ```
-`wifiMgr.web()` — это ссылка на внутренний `WebServer`.
 
-## UDP-ответ на broadcast (для вашего Android-сканера)
-
-Менеджер по умолчанию слушает «свой» порт (например, `TKWM_DISCOVERY_PORT`) и отвечает JSON’ом вида:
-
-`{   "type": "whoami",   "model": "MyDevice",   "name": "Room-1",   "ip": "192.168.1.50",   "ver": "1.2.3" }`
-
-Вы можете:
-
-- изменить порт/формат ответа;
-    
-- добавить поля (например, `mac`, `uptime_ms`, `features`).
-    
-
-(Если вы ещё не включали в своей сборке — в менеджере есть метод инициализации UDP responder; покажу где это в коде, если нужно.)
+`wifiMgr.web()` — ссылка на внутренний `WebServer`.  
+`wifiMgr.ws()`  — ссылка на внутренний `WebSocketsServer`.
 
 ---
 
-## Полный пример: пользовательские роуты + свой WS-хендлер
+## Пользовательский WS-хук
 
 ```cpp
-// Example_TKWM_Documented.ino
-// Демонстрация возможностей TKWifiManager: встроенные страницы, свои HTTP-роуты,
-// свой WS-обработчик, периодические WS-уведомления, управление AP-префиксом.
+wifiMgr.setUserWsHook([](uint8_t id, WStype_t type, const uint8_t* payload, size_t len) {
+    // type: WStype_DISCONNECTED, WStype_TEXT, WStype_BIN, WStype_PING, WStype_PONG
+    // WStype_CONNECTED сюда НЕ попадает (перехватывает библиотека)
+    if (type != WStype_TEXT) return;
+    String s((char*)payload, len);
+    // ... обработка команд
+});
+```
 
-#define TKWM_USE_LITTLEFS 1   // библиотека по умолчанию собирается с LittleFS
+---
+
+## Компиляционные макросы
+
+Определите до `#include "TKWifiManager.h"`:
+
+| Макрос | По умолчанию | Описание |
+|--------|-------------|----------|
+| `TKWM_USE_LITTLEFS` | `1` | `1` — LittleFS, `0` — SPIFFS |
+| `TKWM_WS_PORT` | `81` | Порт WebSocket-сервера |
+| `TKWM_DISCOVERY_PORT` | `64242` | UDP-порт для discovery |
+| `TKWM_DISCOVERY_SIGNATURE` | `"TK_DISCOVER:1"` | Префикс UDP-запроса |
+| `TKWM_MAX_CRED` | `16` | Максимум сохранённых Wi-Fi профилей |
+
+```cpp
+#define TKWM_WS_PORT    9000
+#define TKWM_MAX_CRED   8
+#include "TKWifiManager.h"
+```
+
+---
+
+## UDP-discovery
+
+Менеджер слушает `TKWM_DISCOVERY_PORT` и на пакет с префиксом `TKWM_DISCOVERY_SIGNATURE` отвечает:
+
+```json
+{
+  "id":    "MyDevice-A1B2C3",
+  "name":  "MyDevice-A1B2C3",
+  "ip":    "192.168.1.50",
+  "model": "ESP32",
+  "web":   "/"
+}
+```
+
+Пример сканера (Python):
+
+```python
+import socket, time
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+sock.settimeout(2)
+sock.sendto(b"TK_DISCOVER:1", ("255.255.255.255", 64242))
+
+while True:
+    try:
+        data, addr = sock.recvfrom(512)
+        print(addr[0], data.decode())
+    except socket.timeout:
+        break
+```
+
+---
+
+## Полный пример
+
+```cpp
+// examples/Basic/Basic.ino
+
+#define TKWM_USE_LITTLEFS 1
 #include <Arduino.h>
 #include "TKWifiManager.h"
 
 TKWifiManager wifiMgr(80);
 
-// ===== Простой управляемый «девайс» — LED =====
 #ifndef LED_BUILTIN
   #define LED_BUILTIN 2
 #endif
 const int LED_PIN = LED_BUILTIN;
-volatile bool ledOn = false;
-uint32_t blinkMs = 0, lastBlink = 0;
+bool      ledOn   = false;
+uint32_t  blinkMs = 0, lastBlinkMs = 0;
 
-// ===== Пользовательский WS-обработчик =====
-// Поддерживает команды (текст):
-//  - "ping"               → ответ {"type":"pong","t":<millis>}
-//  - "get-info"           → ответ {"type":"info", ...}
-//  - "led:on" / "led:off" → управлять LED
-//  - "led:blink:250"      → мигание с периодом 250мс
-static void myWsHandler(uint8_t id, WStype_t t, const uint8_t* payload, size_t len) {
-  if (t != WStype_TEXT) return;
-  String s; s.reserve(len);
-  for (size_t i=0;i<len;i++) s += (char)payload[i];
+// ── Пользовательский WS-хук ──────────────────────────────────────────────────
+// Команды: "ping", "get-info", "led:on", "led:off", "led:blink:<ms>"
+static void myWsHook(uint8_t id, WStype_t type, const uint8_t* payload, size_t len) {
+    if (type == WStype_DISCONNECTED) {
+        Serial.printf("[WS] клиент %u отключился\n", id);
+        return;
+    }
+    if (type != WStype_TEXT) return;
 
-  if (s == "ping") {
-    wifiMgr.ws().sendTXT(id, String("{\"type\":\"pong\",\"t\":") + millis() + "}");
-    return;
-  }
+    String s((char*)payload, len);
 
-  if (s == "get-info") {
-    String mode = wifiMgr.inCaptive() ? "AP" : "STA";
-    String ip   = wifiMgr.ip().toString();
-    int rssi    = (WiFi.status()==WL_CONNECTED) ? WiFi.RSSI() : 0;
-    String j = "{";
-    j += "\"type\":\"info\",";
-    j += "\"mode\":\""+mode+"\",";
-    j += "\"ip\":\""+ip+"\",";
-    j += "\"rssi\":"+String(rssi)+",";
-    j += "\"uptime_ms\":"+String(millis());
-    j += "}";
-    wifiMgr.ws().sendTXT(id, j);
-    return;
-  }
-
-  if (s == "led:on")  { blinkMs = 0; ledOn = true;  digitalWrite(LED_PIN, HIGH); return; }
-  if (s == "led:off") { blinkMs = 0; ledOn = false; digitalWrite(LED_PIN, LOW);  return; }
-
-  if (s.startsWith("led:blink:")) {
-    long p = s.substring(10).toInt();
-    if (p < 50) p = 50;
-    blinkMs = (uint32_t)p;
-    lastBlink = millis();
-    return;
-  }
-
-  wifiMgr.ws().sendTXT(id, "{\"type\":\"error\",\"msg\":\"unknown cmd\"}");
+    if (s == "ping") {
+        wifiMgr.ws().sendTXT(id, String("{\"type\":\"pong\",\"t\":") + millis() + "}");
+        return;
+    }
+    if (s == "get-info") {
+        String j = "{\"type\":\"info\",\"mode\":\"";
+        j += wifiMgr.inCaptive() ? "AP" : "STA";
+        j += "\",\"ip\":\"" + wifiMgr.ip().toString() + "\"";
+        j += ",\"rssi\":"    + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
+        j += ",\"uptime_ms\":" + String(millis()) + "}";
+        wifiMgr.ws().sendTXT(id, j);
+        return;
+    }
+    if (s == "led:on")  { blinkMs = 0; ledOn = true;  digitalWrite(LED_PIN, HIGH); return; }
+    if (s == "led:off") { blinkMs = 0; ledOn = false; digitalWrite(LED_PIN, LOW);  return; }
+    if (s.startsWith("led:blink:")) {
+        long p = s.substring(10).toInt();
+        blinkMs = (uint32_t)max(p, 50L);
+        lastBlinkMs = millis();
+        return;
+    }
+    wifiMgr.ws().sendTXT(id, "{\"type\":\"error\",\"msg\":\"unknown cmd\"}");
 }
 
-// ===== Свои HTTP-роуты =====
-void setupCustomRoutes() {
-  // GET /hello → «Hello + статус»
-  wifiMgr.addRoute("/hello", HTTP_GET, [](){
-    String mode = (WiFi.getMode()==WIFI_MODE_AP) ? "AP" : (WiFi.getMode()==WIFI_MODE_STA ? "STA" : "AP+STA");
-    String s = "Hello from TKWifiManager!\n";
-    s += "Mode: " + mode + "\n";
-    s += "IP:   " + wifiMgr.ip().toString() + "\n";
-    wifiMgr.web().send(200, "text/plain; charset=utf-8", s);
-  });
+// ── Пользовательские HTTP-маршруты ───────────────────────────────────────────
+void setupRoutes() {
+    wifiMgr.addRoute("/hello", HTTP_GET, []() {
+        String s = "Hello from TKWifiManager!\nIP: " + wifiMgr.ip().toString();
+        wifiMgr.web().send(200, "text/plain; charset=utf-8", s);
+    });
 
-  // POST /api/led?cmd=on|off|blink&ms=...
-  wifiMgr.addRoute("/api/led", HTTP_POST, [](){
-    String cmd = wifiMgr.web().arg("cmd");
-    if (cmd == "on") {
-      blinkMs=0; ledOn=true; digitalWrite(LED_PIN,HIGH);
-      wifiMgr.web().send(200,"application/json","{\"ok\":true,\"state\":\"on\"}");
-    } else if (cmd == "off") {
-      blinkMs=0; ledOn=false; digitalWrite(LED_PIN,LOW);
-      wifiMgr.web().send(200,"application/json","{\"ok\":true,\"state\":\"off\"}");
-    } else if (cmd == "blink") {
-      uint32_t p = (uint32_t)wifiMgr.web().arg("ms").toInt(); if (p<50) p=50;
-      blinkMs=p; lastBlink=millis();
-      wifiMgr.web().send(200,"application/json", String("{\"ok\":true,\"state\":\"blink\",\"period\":")+p+"}");
-    } else {
-      wifiMgr.web().send(400,"application/json","{\"ok\":false,\"msg\":\"bad cmd\"}");
-    }
-  });
-
-  // необязательный: страница «мини-панель» (если не кладёте свой index.html)
-  wifiMgr.addRoute("/panel", HTTP_GET, [](){
-    String html = "<!doctype html><meta charset='utf-8'><title>Panel</title>"
-                  "<h3>Panel</h3>"
-                  "<button onclick=\"fetch('/api/led?cmd=on',{method:'POST'})\">LED ON</button> "
-                  "<button onclick=\"fetch('/api/led?cmd=off',{method:'POST'})\">LED OFF</button> "
-                  "<button onclick=\"fetch('/api/led?cmd=blink&ms=200',{method:'POST'})\">BLINK</button> "
-                  "<p><a href='/wifi'>Wi-Fi</a> • <a href='/fs'>FS</a> • <a href='/ota'>OTA</a></p>";
-    wifiMgr.web().send(200,"text/html; charset=utf-8",html);
-  });
+    wifiMgr.addRoute("/api/led", HTTP_POST, []() {
+        String cmd = wifiMgr.web().arg("cmd");
+        if      (cmd == "on")  { blinkMs=0; ledOn=true;  digitalWrite(LED_PIN,HIGH); }
+        else if (cmd == "off") { blinkMs=0; ledOn=false; digitalWrite(LED_PIN,LOW);  }
+        else if (cmd == "blink") {
+            blinkMs = max((uint32_t)wifiMgr.web().arg("ms").toInt(), (uint32_t)50);
+            lastBlinkMs = millis();
+        } else {
+            wifiMgr.web().send(400, "application/json", "{\"ok\":false}");
+            return;
+        }
+        wifiMgr.web().send(200, "application/json", "{\"ok\":true}");
+    });
 }
 
 void setup() {
-  Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+    Serial.begin(115200);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
 
-  // ВАЖНО: передайте префикс SSID — он сохранится и будет использоваться при ручном старте AP
-  wifiMgr.begin(/*apSsidPrefix=*/"DemoTKWM", /*formatFS=*/true);
+    wifiMgr.begin(/*apSsidPrefix=*/"DemoTKWM", /*formatFS=*/true);
 
-  // Подключаем свои HTTP-маршруты
-  setupCustomRoutes();
+    setupRoutes();
+    wifiMgr.setUserWsHook(myWsHook);
 
-  // Подключаем свой WS-хендлер (вместе с встроенными "status"/"scan")
-  wifiMgr.setUserWsHook(myWsHandler);
-
-  Serial.println(F("[EXAMPLE] готово. Откройте /wifi  /fs  /ota  /panel  /hello"));
+    Serial.println(F("[EXAMPLE] Готово. /wifi  /fs  /ota  /hello"));
 }
 
 uint32_t lastAnnounce = 0;
 void loop() {
-  wifiMgr.loop();
+    wifiMgr.loop();
 
-  // Локальная логика: мигание светодиодом
-  if (blinkMs) {
-    uint32_t now = millis();
-    if (now - lastBlink >= blinkMs) {
-      lastBlink = now;
-      ledOn = !ledOn;
-      digitalWrite(LED_PIN, ledOn ? HIGH : LOW);
+    // мигание LED
+    if (blinkMs && millis() - lastBlinkMs >= blinkMs) {
+        lastBlinkMs = millis();
+        ledOn = !ledOn;
+        digitalWrite(LED_PIN, ledOn ? HIGH : LOW);
     }
-  }
 
-  // Периодически анонсируем статус по WS (раз в 5 сек)
-  if (millis() - lastAnnounce > 5000) {
-    lastAnnounce = millis();
-    String mode = wifiMgr.inCaptive() ? "AP" : "STA";
-    String ip   = wifiMgr.ip().toString();
-    String j = String("{\"type\":\"status\",\"mode\":\"")+mode+"\",\"ip\":\""+ip+"\"}";
-    wifiMgr.ws().broadcastTXT(j);
-  }
+    // периодический broadcast статуса (раз в 5 сек)
+    if (millis() - lastAnnounce > 5000) {
+        lastAnnounce = millis();
+        String j = String("{\"type\":\"status\",\"mode\":\"")
+            + (wifiMgr.inCaptive() ? "AP" : "STA")
+            + "\",\"ip\":\"" + wifiMgr.ip().toString() + "\"}";
+        wifiMgr.ws().broadcastTXT(j);
+    }
 }
 ```
 
-## Частые вопросы / подсказки
+---
 
-- **FS «загружается», но файла нет.**  
-    Убедитесь, что используется **LittleFS** (по умолчанию включено в библиотеке). В логе при `begin()` пишется: `[TKWM] FS = LittleFS` и `FS mount: OK`. В `boards.txt`/Partition Scheme — разметка совместимая с LittleFS.
-      
-- **Как подменить встроенную `/wifi`/`/fs`/`/ota`?**  
-    Просто положите в FS одноимённые файлы `wifi.html`/`fs.html`/`ota.html`. Сервер отдаст их вместо встроенных.
-    
-- **Как добавить «свой» UDP-ответ для Android-сканера?**  
-    Либо используйте встроенный responder (порт/формат можно изменить), либо создайте свой `WiFiUDP` и слушайте broadcast, отвечая JSON’ом. Могу прислать готовый фрагмент под ваш формат.
-    
+## Частые вопросы
+
+**FS монтируется, но файла нет**  
+Убедитесь, что в `Partition Scheme` выбрана разметка с LittleFS (минимум 1 МБ под FS). В Serial-логе при `begin()` должно быть: `[TKWM] FS = LittleFS` и `FS mount: OK`.
+
+**Как сменить тему оформления?**  
+Загрузите в FS файл `/theme.css` с нужными значениями CSS-переменных. Для кнопки-переключателя 🌙/☀️/💻 дополнительно загрузите `/theme.js`. Готовые файлы лежат в `src/` репозитория.
+
+**Как заменить встроенные страницы?**  
+Загрузите в FS `wifi.html` / `fs.html` / `ota.html` / `index.html` — сервер автоматически отдаст их вместо встроенных.
+
+**Работает ли со SPIFFS?**  
+Да: `#define TKWM_USE_LITTLEFS 0` до `#include "TKWifiManager.h"`. LittleFS рекомендуется (более надёжная).
+
+**Как добавить поля в UDP-ответ?**  
+Отредактируйте метод `udpTick()` в `TKWifiManager.cpp` — найдите формирование `payload` и добавьте нужные поля.
+
+**Ace-редактор не загружается (нет интернета)**  
+Файловый менеджер работает и без него — кнопки открыть/скачать/удалить/создать доступны. Если нужен офлайн-редактор, скачайте `ace.js` и загрузите в FS, затем замените CDN-ссылку в `fs.html`.
