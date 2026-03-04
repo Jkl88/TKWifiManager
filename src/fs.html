@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Файлы (LittleFS)</title>
+<style>
+:root{--bg:#0b1220;--card:#0d1728;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px system-ui, -apple-system, Segoe UI, Roboto}
+.wrap{display:grid;grid-template-columns:340px 1fr;min-height:100vh}
+.side{border-right:1px solid var(--br);padding:14px}
+.main{padding:14px}
+h1{font-size:18px;margin:0 0 10px}
+input,button{padding:8px 10px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink)}
+button{background:var(--btn);cursor:pointer}
+.list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.item{display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--br);border-radius:10px;padding:8px;background:#0f1a2c}
+.item .path{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.badge{color:var(--mut);font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tools{display:flex;gap:8px;align-items:center;margin:8px 0}
+#editor{position:relative;height:64vh;width:100%;border:1px solid var(--br);border-radius:12px}
+.mut{color:var(--mut)}
+hr{border:0;border-top:1px solid var(--br);margin:12px 0}
+.drop{border:2px dashed var(--br);border-radius:12px;padding:16px;text-align:center;margin-top:8px}
+.drop.drag{background:#0f1a2c}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--br)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="side">
+    <h1>Файлы</h1>
+    <div class="tools">
+      <button id="refresh">🔄 Обновить</button>
+      <a class="mut" href="/wifi">Wi-Fi</a>
+	  <a class="mut" href="/ota">OTA</a>
+      <a class="mut" href="/">Главная</a>
+    </div>
+
+    <div class="row">
+      <input id="newPath" placeholder="/новый_файл.txt" style="flex:1;min-width:180px">
+      <button id="create">➕ Создать</button>
+    </div>
+
+    <div class="drop" id="drop">Перетащите файлы сюда для загрузки в корень (или используйте <input id="up" type="file" multiple> )</div>
+
+    <div class="list" id="list"></div>
+  </div>
+
+  <div class="main">
+    <div class="row">
+      <div>Открыт: <b id="curPath">—</b></div>
+      <div class="badge" id="curInfo"></div>
+      <span style="flex:1"></span>
+      <button id="save" disabled>💾 Сохранить</button>
+      <a id="download" class="mut" href="#" download>⬇️ Скачать</a>
+    </div>
+    <div id="editor"></div>
+    <div class="mut" style="margin-top:6px">Подсветка синтаксиса: авто по расширению (html, css, js, json, txt, md, ini, svg, yaml, c/cpp/ino и др.). Для бинарных/больших файлов редактирование отключено — используйте скачивание/перезагрузку.</div>
+  </div>
+</div>
+
+<!-- Ace Editor (CDN). При отсутствии интернета страница работает, но без подсветки (plain textarea не требуется — редактор просто не инициализируется). -->
+<script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.9/src-min/ace.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const listEl = $("#list");
+const drop = $("#drop");
+const up = $("#up");
+const refreshBtn = $("#refresh");
+const createBtn = $("#create");
+const newPath = $("#newPath");
+const curPathEl = $("#curPath");
+const curInfoEl = $("#curInfo");
+const saveBtn = $("#save");
+const downloadA = $("#download");
+
+let editor = null, currentPath = "", currentBinary = false;
+
+function aceReady(){ return window.ace && ace.edit; }
+function initEditor(){
+  if (!aceReady()) return;
+  editor = ace.edit("editor");
+  editor.session.setUseWorker(false);
+  editor.setOption("wrap", true);
+  editor.setTheme("ace/theme/one_dark");
+  editor.session.setMode("ace/mode/text");
+  editor.on('change', ()=> { if (currentPath && !currentBinary) saveBtn.disabled = false; });
+}
+
+function modeByExt(p){
+  p = (p||"").toLowerCase();
+  if (p.endsWith(".html") || p.endsWith(".htm")) return "ace/mode/html";
+  if (p.endsWith(".css")) return "ace/mode/css";
+  if (p.endsWith(".js") || p.endsWith(".mjs")) return "ace/mode/javascript";
+  if (p.endsWith(".json")) return "ace/mode/json";
+  if (p.endsWith(".md")) return "ace/mode/markdown";
+  if (p.endsWith(".ini") || p.endsWith(".conf")) return "ace/mode/ini";
+  if (p.endsWith(".svg") || p.endsWith(".xml")) return "ace/mode/xml";
+  if (p.endsWith(".yaml") || p.endsWith(".yml")) return "ace/mode/yaml";
+  if (p.endsWith(".c") || p.endsWith(".h") || p.endsWith(".cpp") || p.endsWith(".hpp") || p.endsWith(".ino")) return "ace/mode/c_cpp";
+  return "ace/mode/text";
+}
+
+async function api(path, opts){ const r = await fetch(path, opts); return r.json(); }
+
+function fmtSize(b){ if (b>1<<20) return (b/1048576).toFixed(2)+" MB"; if (b>1<<10) return (b/1024).toFixed(1)+" KB"; return b+" B"; }
+
+async function refreshList(){
+  listEl.innerHTML = "";
+  const j = await api("/api/fs/list");
+  (j.files||[]).sort((a,b)=>a.path.localeCompare(b.path)).forEach(f=>{
+    const row = document.createElement("div");
+    row.className="item";
+    row.innerHTML = `
+      <div class="path" title="${f.path}">${f.path}</div>
+      <div class="row">
+        <span class="badge">${fmtSize(f.size)}</span>
+        <button data-open>✏️</button>
+        <a class="mut" href="${encodeURI(f.path)}" download>⬇️</a>
+        <button data-del>🗑️</button>
+      </div>`;
+    row.querySelector("[data-open]").onclick = ()=> openFile(f.path, f.size);
+    row.querySelector("[data-del]").onclick = ()=> delFile(f.path);
+    listEl.appendChild(row);
+  });
+}
+
+async function openFile(path, size){
+  currentPath = path; curPathEl.textContent = path;
+  downloadA.href = encodeURI(path); downloadA.download = path.split("/").pop();
+  const j = await api("/api/fs/get?path="+encodeURIComponent(path));
+  if (!j.ok) {
+    currentBinary = true;
+    if (editor) editor.setValue("", -1);
+    curInfoEl.textContent = j.binary ? `Бинарный/слишком большой файл (${fmtSize(j.size||0)}) — редактирование отключено.` : "Невозможно открыть";
+    saveBtn.disabled = true;
+    return;
+  }
+  currentBinary = false;
+  if (editor) {
+    editor.session.setMode(modeByExt(path));
+    editor.setValue(j.text || "", -1);
+  } else {
+    // Если Ace не загрузился — просто ничего (оставим пустую область)
+  }
+  curInfoEl.textContent = "Открыт для редактирования";
+  saveBtn.disabled = true;
+}
+
+async function save(){
+  if (!currentPath || currentBinary) return;
+  const text = editor ? editor.getValue() : "";
+  const r = await fetch("/api/fs/put?path="+encodeURIComponent(currentPath), { method:"POST", body: text });
+  const j = await r.json();
+  if (j.ok) { saveBtn.disabled = true; await refreshList(); curInfoEl.textContent = "Сохранено"; }
+  else { curInfoEl.textContent = "Ошибка сохранения"; }
+}
+
+async function delFile(path){
+  if (!confirm("Удалить " + path + " ?")) return;
+  const j = await api("/api/fs/delete", { method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body: "path="+encodeURIComponent(path) });
+  if (j.ok) { if (path===currentPath){ currentPath=""; curPathEl.textContent="—"; if (editor) editor.setValue("", -1); } refreshList(); }
+}
+
+async function createFile(){
+  let p = newPath.value.trim();
+  if (!p) return;
+  if (!p.startsWith("/")) p = "/"+p;
+  const j = await fetch("/api/fs/put?path="+encodeURIComponent(p), {method:"POST", body:""});
+  const jj = await j.json();
+  if (jj.ok){ newPath.value=""; await refreshList(); openFile(p, 0); }
+}
+
+async function uploadFiles(files, prefix=""){
+  for (const f of files){
+    const fd = new FormData();
+    fd.append("file", f, f.name);
+    const to = (prefix||"") + "/" + f.name;
+    await fetch("/upload?to="+encodeURIComponent(to), {method:"POST", body: fd});
+  }
+  await refreshList();
+}
+
+refreshBtn.onclick = refreshList;
+createBtn.onclick = createFile;
+saveBtn.onclick = save;
+
+up.addEventListener("change", async e => {
+  await uploadFiles(e.target.files);
+  up.value = "";
+});
+
+["dragenter","dragover"].forEach(t => drop.addEventListener(t, e=>{e.preventDefault(); drop.classList.add("drag");}));
+["dragleave","drop"].forEach(t => drop.addEventListener(t, e=>{e.preventDefault(); drop.classList.remove("drag");}));
+drop.addEventListener("drop", e => { uploadFiles(e.dataTransfer.files); });
+window.addEventListener("load", ()=>{ initEditor(); refreshList(); });
+</script>
+</body>
+</html>

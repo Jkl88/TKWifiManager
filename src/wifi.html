@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wi-Fi настройка</title>
+<style>
+  :root { --bg:#0b1220; --card:#0d1728; --ink:#e8eef7; --mut:#9fb3d1; --br:#1b2a44; --btn:#143057; }
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui, -apple-system, Segoe UI, Roboto}
+  .wrap{max-width:860px;margin:auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
+  h1{font-size:18px;margin:0 0 12px}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink)}
+  button{background:var(--btn);cursor:pointer}
+  .list{margin-top:12px}
+  .net{display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid var(--br);border-radius:10px;margin:8px 0;background:#0f1a2c;cursor:pointer}
+  .net small{color:var(--mut)}
+  .ok{color:#95ffa1}
+  .err{color:#ff9a9a}
+  .mut{color:var(--mut)}
+  .hint{margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Настройка Wi-Fi</h1>
+
+    <div class="row">
+      <button id="scanBtn">🔄 Обновить список</button>
+      <div id="status" class="mut"></div>
+    </div>
+
+    <div id="list" class="list"></div>
+
+    <hr style="border:0;border-top:1px solid var(--br);margin:14px 0">
+
+    <form id="f" class="row" onsubmit="return save(event)">
+      <input id="ssid" placeholder="SSID" required style="flex:1;min-width:180px">
+      <input id="pass" placeholder="Пароль" type="password" style="flex:1;min-width:180px">
+      <button type="submit">💾 Сохранить</button>
+    </form>
+    <div id="saveMsg" class="hint"></div>
+
+    <p class="mut hint">Совет: нажмите по сети выше, SSID подставится автоматически.</p>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const list = $("#list");
+const statusEl = $("#status");
+const ssidEl = $("#ssid");
+const passEl = $("#pass");
+const scanBtn = $("#scanBtn");
+const saveMsg = $("#saveMsg");
+
+async function scan() {
+  try {
+    scanBtn.disabled = true;
+    statusEl.textContent = "Сканирование...";
+    list.innerHTML = "";
+    const r = await fetch("/api/wifi/scan");
+    const j = await r.json();
+    statusEl.innerHTML = j.connected
+      ? `Подключено • IP: <b>${j.ip || "-"}</b>`
+      : "Не подключено";
+    (j.nets || []).sort((a,b)=>b.rssi - a.rssi).forEach(n => {
+      const enc = (n.enc===0) ? "open" : "🔒";
+      const el = document.createElement("div");
+      el.className = "net";
+      el.innerHTML =
+        `<div><b>${escapeHtml(n.ssid || "(скрытая)")}</b><br><small>${enc}, ch ${n.ch}</small></div>
+         <small>${n.rssi} dBm</small>`;
+      el.onclick = () => {
+        if (n.ssid) {
+          ssidEl.value = n.ssid;
+          passEl.focus();
+        } else {
+          ssidEl.focus();
+        }
+      };
+      list.appendChild(el);
+    });
+  } catch(e) {
+    statusEl.innerHTML = `<span class="err">Ошибка сканирования</span>`;
+  } finally {
+    scanBtn.disabled = false;
+  }
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"'`=\/]/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","`":"&#x60;","=":"&#x3D;","/":"&#x2F;" }[m]))}
+
+async function save(ev){
+  ev.preventDefault();
+  saveMsg.textContent = "Сохраняю и подключаюсь...";
+  const body = { ssid: ssidEl.value.trim(), password: passEl.value };
+  try{
+    const r = await fetch("/api/wifi/save", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!j.ok) { saveMsg.innerHTML = `<span class="err">${j.msg||"Ошибка"}</span>`; return false; }
+    if (j.connected) {
+      saveMsg.innerHTML = `<span class="ok">Подключено! IP: <b>${j.ip||"-"}</b></span>`;
+    } else {
+      saveMsg.innerHTML = `<span class="err">Не удалось подключиться. Проверьте пароль и попробуйте снова.</span>`;
+    }
+    scan(); // обновим статус
+  }catch(e){
+    saveMsg.innerHTML = `<span class="err">Ошибка запроса</span>`;
+  }
+  return false;
+}
+
+scanBtn.onclick = scan;
+window.addEventListener("load", scan);
+</script>
+</body>
+</html>

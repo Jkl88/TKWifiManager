@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OTA обновление</title>
+<style>
+:root{--bg:#0b1220;--card:#0d1728;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--ok:#95ffa1;--err:#ff9a9a}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,Roboto}
+.wrap{max-width:720px;margin:auto;padding:20px}
+.card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:#0f1a2c;color:var(--ink)}
+button{background:var(--btn);cursor:pointer}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bar{height:12px;border:1px solid var(--br);border-radius:999px;overflow:hidden;background:#0f1a2c;margin-top:10px}
+.fill{height:100%;width:0%}
+.ok{color:var(--ok)} .err{color:var(--err)} .mut{color:var(--mut)}
+a{color:#9fd0ff;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>OTA обновление прошивки</h1>
+    <form id="f" class="row">
+      <input id="bin" type="file" accept=".bin" required>
+      <button id="go">🚀 Обновить</button>
+      <a class="mut" href="/">Главная</a>
+      <a class="mut" href="/fs">Файлы</a>
+      <a class="mut" href="/wifi">Wi-Fi</a>
+    </form>
+
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div id="log" class="mut" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const form=$("#f"), bin=$("#bin"), go=$("#go"), fill=$("#fill"), log=$("#log");
+
+form.addEventListener("submit", ev=>{
+  ev.preventDefault();
+  const file = bin.files && bin.files[0];
+  if (!file) return;
+  go.disabled = true;
+  log.textContent = "Загрузка...";
+  const xhr = new XMLHttpRequest();
+  xhr.upload.onprogress = e=>{
+    if (e.lengthComputable) {
+      const p = Math.round(e.loaded*100/e.total);
+      fill.style.width = p+"%";
+    }
+  };
+  xhr.onreadystatechange = ()=>{
+    if (xhr.readyState === 4) {
+      go.disabled = false;
+      if (xhr.status === 200) {
+        fill.style.width = "100%";
+        log.innerHTML = "<span class='ok'>Готово. Устройство перезагрузится...</span>";
+        // страница из прошивки сама отправит перезагрузку и редирект
+      } else {
+        log.innerHTML = "<span class='err'>Ошибка: "+xhr.status+" "+xhr.statusText+"</span>";
+      }
+    }
+  };
+  const fd = new FormData();
+  fd.append("file", file, file.name);
+  xhr.open("POST", "/ota");
+  xhr.send(fd);
+});
+</script>
+</body>
+</html>
