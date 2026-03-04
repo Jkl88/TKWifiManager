@@ -1,6 +1,9 @@
 #include "TKWifiManager.h"
 #include "esp_wifi.h"
 
+// forward declaration (определение — ниже, перед wsRunScanAndPublish)
+static void ensureWifiForScan_();
+
 // ===================== ВСТРОЕННЫЕ СТРАНИЦЫ =====================
 static const char WIFI_HTML[] PROGMEM = R"HTML(<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
