@@ -13,6 +13,7 @@
 
 // forward declaration (определение — ниже, перед wsRunScanAndPublish)
 static void ensureWifiForScan_();
+static String tkwmWebServerPostBody_(WebServer& s);
 
 // ===================== ВСТРОЕННЫЕ СТРАНИЦЫ =====================
 static const char WIFI_HTML[] PROGMEM = R"HTML(<!doctype html>
@@ -640,11 +641,11 @@ void TKWifiManager::handleWifiPage() {
 }
 
 void TKWifiManager::handleWifiSave() {
-    if (!_server.hasArg("plain")) {
+    const String body = tkwmWebServerPostBody_(_server);
+    if (!body.length()) {
         _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
         return;
     }
-    const String body = _server.arg("plain");
     String          ssid, pass;
 
     if (!tkwmJsonGetString(body, "ssid", ssid)) {
@@ -1021,6 +1022,16 @@ static void tkwmAppJsonVal_(String& o, const String& s) {
         o += c;
     }
 }
+/** Тело JSON POST: в разных версиях/клиентах аргумент может называться иначе, чем "plain". */
+static String tkwmWebServerPostBody_(WebServer& s) {
+    if (s.hasArg("plain")) return s.arg("plain");
+    if (s.hasArg("body")) return s.arg("body");
+    if (s.hasArg("json")) return s.arg("json");
+    for (int i = 0; i < s.args(); i++) {
+        if (s.argName(i).length() == 0 && s.arg(i).length() > 0) return s.arg(i);
+    }
+    return String();
+}
 /** Символ токеном, как в C (напр. ESP32), чтобы совпадало с ESPConnect. */
 static String tkwmOtaController_() {
 #ifdef TKWM_OTA_CONTROLLER
@@ -1109,11 +1120,11 @@ void TKWifiManager::handleOtaConfig() {
 }
 
 void TKWifiManager::handleOtaSaveSettings() {
-    if (!_server.hasArg("plain")) {
+    const String b = tkwmWebServerPostBody_(_server);
+    if (!b.length()) {
         _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
         return;
     }
-    const String& b  = _server.arg("plain");
     bool         au  = false;
     int           p  = b.indexOf(F("\"auto\""));
     if (p >= 0) {
@@ -1184,24 +1195,31 @@ static bool tkwmEsptoolsResolve_(const String& base, const String& token, const 
         if (r.length() && r.length() < 512) err += ": " + r;
         String d;
         if (tkwmJsonGetString(r, "detail", d) && d.length()) err = d;
+        if (tkwmJsonGetString(r, "message", d) && d.length()) err = d;
         return false;
     }
-    if (!tkwmJsonGetString(r, "download_url", dl) || dl.isEmpty()) {
+    dl = "";
+    if (!tkwmJsonGetString(r, "download_url", dl) || dl.isEmpty()) tkwmJsonGetString(r, "downloadUrl", dl);
+    if (dl.isEmpty()) {
         err = "no download_url in response";
+        if (r.length() && r.length() < 256) err += ": " + r;
         return false;
     }
-    if (!tkwmJsonGetString(r, "firmware_version", fw)) fw = "";
-    if (!tkwmJsonGetString(r, "latest_firmware_version", latest)) latest = "";
+    fw = "";
+    if (!tkwmJsonGetString(r, "firmware_version", fw) || !fw.length()) tkwmJsonGetString(r, "firmwareVersion", fw);
+    latest = "";
+    if (!tkwmJsonGetString(r, "latest_firmware_version", latest) || !latest.length())
+        tkwmJsonGetString(r, "latestFirmwareVersion", latest);
     return true;
 }
 
 void TKWifiManager::handleOtaCheck() {
-    if (!_server.hasArg("plain")) {
+    const String body = tkwmWebServerPostBody_(_server);
+    if (!body.length()) {
         _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
         return;
     }
     if (!_otaConfLoaded) loadOtaConf_();
-    const String body = _server.arg("plain");
     String         hostI, tokenI, skipI;
     tkwmJsonGetString(body, "host", hostI);
     tkwmJsonGetString(body, "token", tokenI);
@@ -1345,12 +1363,12 @@ static bool tkwmEsptoolsDownloadOta_(const String& base, const String& token, co
 }
 
 void TKWifiManager::handleOtaInstall() {
-    if (!_server.hasArg("plain")) {
+    const String body = tkwmWebServerPostBody_(_server);
+    if (!body.length()) {
         _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
         return;
     }
     if (!_otaConfLoaded) loadOtaConf_();
-    const String body = _server.arg("plain");
     String         hostI, tokenI;
     tkwmJsonGetString(body, "host", hostI);
     tkwmJsonGetString(body, "token", tokenI);

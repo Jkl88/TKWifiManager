@@ -140,7 +140,13 @@ function showTok() {
 
 async function postJson(url, o) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(o) });
-  const j = await r.json().catch(() => ({}));
+  const text = await r.text();
+  let j = {};
+  try {
+    j = text && text.length ? JSON.parse(text) : {};
+  } catch (e) {
+    j = { _badJson: true, _raw: text, _err: (e && e.message) ? String(e.message) : "parse" };
+  }
   j._http = r.status;
   return j;
 }
@@ -166,10 +172,17 @@ async function doCheck() {
     mbd.innerHTML = "Удалённая: <b>" + (j.remoteVersion || "—") + "</b> · на устройстве: <b>" + (j.currentVersion || "—") + "</b>.";
     mb.classList.add("on");
     esplog.innerHTML = "<span class='ok'>Найдено обновление</span>";
+  } else if (j && j._badJson) {
+    const raw = (j._raw || "").slice(0, 400);
+    esplog.innerHTML = "<span class='err'>Ответ не JSON (HTTP " + (j._http != null ? j._http : "?") + "): " + (raw || "(пусто)").replace(/</g, "&lt;") + "</span>";
   } else if (j && j.ok) {
-    esplog.innerHTML = (j.updateAvailable === false && (j.currentVersion && j.currentVersion === j.remoteVersion)) ? "Установлена актуальная прошивка" : (j.msg ? "<span class='mut'>" + (j.msg || "Нет") + "</span>" : "Нет обновлений");
+    const same = j.updateAvailable === false && (j.currentVersion && j.currentVersion === j.remoteVersion);
+    if (j.msg) esplog.innerHTML = "<span class='mut'>" + (j.msg || "") + "</span>";
+    else if (same) esplog.innerHTML = "Установлена актуальная прошивка";
+    else if (j.updateAvailable === false) esplog.innerHTML = "<span class='mut'>Обновлений нет (текущая: " + (j.currentVersion || "—") + ")</span>";
+    else esplog.innerHTML = "Нет обновлений";
   } else {
-    const m = (j && j.msg) ? j.msg : ("HTTP " + (j && j._http));
+    const m = (j && (j.msg || j.detail)) ? (j.msg || j.detail) : (j && j._http === 200 ? "Некорректный JSON от устройства" : ("HTTP " + (j && j._http != null ? j._http : "?")));
     esplog.innerHTML = "<span class='err'>" + m + "</span>";
   }
 }
@@ -178,7 +191,10 @@ async function doInstall() {
   esplog.textContent = "Скачивание и прошивка...";
   const j = await postJson("/api/ota/install", { host: host.value.trim(), token: token.value.trim() });
   if (j && j.ok) esplog.innerHTML = "<span class='ok'>Ок. Устройство перезагружается...</span>";
-  else esplog.innerHTML = "<span class='err'>" + (j && j.msg ? j.msg : "ошибка") + "</span>";
+  else if (j && j._badJson) {
+    const raw = (j._raw || "").slice(0, 300);
+    esplog.innerHTML = "<span class='err'>Ответ не JSON: " + (raw || "(пусто)").replace(/</g, "&lt;") + "</span>";
+  } else esplog.innerHTML = "<span class='err'>" + (j && (j.msg || j.detail) ? (j.msg || j.detail) : "ошибка") + "</span>";
 }
 
 bcheck.addEventListener("click", doCheck);
