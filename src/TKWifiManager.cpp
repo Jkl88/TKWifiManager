@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <cstdio>
 #include <cstring>
 
 // Токен порта встроен в JS как число, чтобы встроенные HTML совпадали с макросом TKWM_WS_PORT
@@ -1017,10 +1018,30 @@ static String tkwmNormHost_(String h) {
 }
 static void tkwmAppJsonVal_(String& o, const String& s) {
     for (uint32_t i = 0; i < s.length(); ++i) {
-        char c = s[i];
-        if (c == '"' || c == '\\') o += '\\';
-        o += c;
+        unsigned char c = (unsigned char)s[i];
+        if (c == '"' || c == '\\') {
+            o += '\\';
+            o += (char)c;
+        }
+        else if (c < 0x20) {
+            char esc[8];
+            snprintf(esc, sizeof(esc), "\\u%04X", (unsigned)c);
+            o += esc;
+        }
+        else
+            o += (char)c;
     }
+}
+/** Соединение с HTTP, ответ 400/… про HTTPS — чаще всего указан http://, а порт/виртуалхост ждут TLS. */
+static bool tkwmErrSuggestsHttps_(const String& r, const String& err) {
+    String t = r + " " + err;
+    t.toLowerCase();
+    if (t.indexOf("an https server") >= 0) return true;
+    if (t.indexOf("to an https") >= 0) return true;
+    if (t.indexOf("https port") >= 0) return true;
+    if (t.indexOf("plain http") >= 0 && t.indexOf("https") >= 0) return true;
+    if (t.indexOf("tls") >= 0) return true;
+    return false;
 }
 /** Тело JSON POST: в разных версиях/клиентах аргумент может называться иначе, чем "plain". */
 static String tkwmWebServerPostBody_(WebServer& s) {
@@ -1145,72 +1166,86 @@ void TKWifiManager::handleOtaSaveSettings() {
 
 // POST resolve-download на ESPConnect; out: firmware_version, download_url, latest_firmware_version, err
 static bool tkwmEsptoolsResolve_(const String& base, const String& token, const String& controller, String& fw, String& dl, String& latest, String& err) {
-    String url  = tkwmNormHost_(base);
-    String post = F("{\"controller\":\"");
-    tkwmAppJsonVal_(post, controller);
-    post += F("\",\"firmware_type\":\"firmware\"}");
-    url += F("/api/firmware/resolve-download");
-    if (url.indexOf("://") < 0) {
-        err = "bad host";
-        return false;
-    }
     if (WiFi.status() != WL_CONNECTED) {
         err = "no internet (Wi-Fi not connected)";
         return false;
     }
-    int    code = 0;
-    String r;
-    {
-        HTTPClient http;
-        http.setConnectTimeout(15000);
-        http.setTimeout(30000);
-        if (url.startsWith("https://")) {
-            WiFiClientSecure cl;
-#if TKWM_OTA_INSECURE
-            cl.setInsecure();
-#endif
-            if (!http.begin(cl, url)) {
-                err = "http begin failed";
-                return false;
-            }
-        } else {
-            WiFiClient cl;
-            if (!http.begin(cl, url)) {
-                err = "http begin failed";
-                return false;
-            }
-        }
-        http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
-        http.addHeader(F("Content-Type"), F("application/json"));
-        code = http.POST(post);
-        r    = http.getString();
-        http.end();
-    }
-    if (code < 0) {
-        err = "HTTP error " + String(code);
+    String post = F("{\"controller\":\"");
+    tkwmAppJsonVal_(post, controller);
+    post += F("\",\"firmware_type\":\"firmware\"}");
+    const String sufx = F("/api/firmware/resolve-download");
+    String         baseN = tkwmNormHost_(base);
+    if (baseN.indexOf("://") < 0) {
+        err = "bad host";
         return false;
     }
-    if (code < 200 || code >= 300) {
+    int    code = 0;
+    String r, url;
+    for (int att = 0; att < 2; att++) {
+        if (att == 1) {
+            if (!baseN.startsWith("http://")) break;
+            baseN = String("https://") + baseN.substring(7);
+        }
+        url = baseN + sufx;
+        {
+            HTTPClient http;
+            http.setConnectTimeout(15000);
+            http.setTimeout(30000);
+            if (url.startsWith("https://")) {
+                WiFiClientSecure cl;
+#if TKWM_OTA_INSECURE
+                cl.setInsecure();
+#endif
+                if (!http.begin(cl, url)) {
+                    err = "http begin failed";
+                    return false;
+                }
+            } else {
+                WiFiClient cl;
+                if (!http.begin(cl, url)) {
+                    err = "http begin failed";
+                    return false;
+                }
+            }
+            http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
+            http.addHeader(F("Content-Type"), F("application/json"));
+            code = http.POST(post);
+            r    = http.getString();
+            http.end();
+        }
+        if (code < 0) {
+            err = "HTTP error " + String(code);
+            return false;
+        }
+        if (code >= 200 && code < 300) {
+            dl = "";
+            if (!tkwmJsonGetString(r, "download_url", dl) || dl.isEmpty()) tkwmJsonGetString(r, "downloadUrl", dl);
+            if (dl.isEmpty()) {
+                err = "no download_url in response";
+                if (r.length() && r.length() < 256) {
+                    err += ": ";
+                    err += (r.length() > 200) ? r.substring(0, 200) : r;
+                }
+                return false;
+            }
+            fw = "";
+            if (!tkwmJsonGetString(r, "firmware_version", fw) || !fw.length()) tkwmJsonGetString(r, "firmwareVersion", fw);
+            latest = "";
+            if (!tkwmJsonGetString(r, "latest_firmware_version", latest) || !latest.length())
+                tkwmJsonGetString(r, "latestFirmwareVersion", latest);
+            return true;
+        }
         err = "server HTTP " + String(code);
         if (r.length() && r.length() < 512) err += ": " + r;
-        String d;
-        if (tkwmJsonGetString(r, "detail", d) && d.length()) err = d;
-        if (tkwmJsonGetString(r, "message", d) && d.length()) err = d;
+        {
+            String d;
+            if (tkwmJsonGetString(r, "detail", d) && d.length()) err = d;
+            if (tkwmJsonGetString(r, "message", d) && d.length()) err = d;
+        }
+        if (att == 0 && baseN.startsWith("http://") && tkwmErrSuggestsHttps_(r, err)) continue;
         return false;
     }
-    dl = "";
-    if (!tkwmJsonGetString(r, "download_url", dl) || dl.isEmpty()) tkwmJsonGetString(r, "downloadUrl", dl);
-    if (dl.isEmpty()) {
-        err = "no download_url in response";
-        if (r.length() && r.length() < 256) err += ": " + r;
-        return false;
-    }
-    fw = "";
-    if (!tkwmJsonGetString(r, "firmware_version", fw) || !fw.length()) tkwmJsonGetString(r, "firmwareVersion", fw);
-    latest = "";
-    if (!tkwmJsonGetString(r, "latest_firmware_version", latest) || !latest.length())
-        tkwmJsonGetString(r, "latestFirmwareVersion", latest);
-    return true;
+    return false;
 }
 
 void TKWifiManager::handleOtaCheck() {
@@ -1272,88 +1307,99 @@ static bool tkwmEsptoolsDownloadOta_(const String& base, const String& token, co
         err = e2;
         return false;
     }
-    String url = tkwmNormHost_(base) + dl;
-    if (!url.startsWith("http")) {
+    String tryUrl = tkwmNormHost_(base) + dl;
+    if (!tryUrl.startsWith("http")) {
         err = "bad download URL";
         return false;
     }
-    {
-        HTTPClient      http;
-        http.setConnectTimeout(15000);
-        http.setTimeout(60000);
-        int code = 0;
-        if (url.startsWith("https://")) {
-            WiFiClientSecure cl;
+    for (int att = 0; att < 2; att++) {
+        if (att == 1) {
+            if (!tryUrl.startsWith("http://")) break;
+            tryUrl = String("https://") + tryUrl.substring(7);
+        }
+        {
+            HTTPClient      http;
+            http.setConnectTimeout(15000);
+            http.setTimeout(60000);
+            int  code   = 0;
+            int  len    = 0;
+            String rbody;
+            if (tryUrl.startsWith("https://")) {
+                WiFiClientSecure cl;
 #if TKWM_OTA_INSECURE
-            cl.setInsecure();
+                cl.setInsecure();
 #endif
-            if (!http.begin(cl, url)) {
-                err = "http begin (bin) failed";
-                return false;
-            }
-        } else {
-            WiFiClient cl;
-            if (!http.begin(cl, url)) {
-                err = "http begin (bin) failed";
-                return false;
-            }
-        }
-        http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
-        code    = http.GET();
-        int len = (int)http.getSize();
-        if (code != 200) {
-            err = "GET " + String(code) + " " + http.getString();
-            http.end();
-            return false;
-        }
-        if (!Update.begin((len > 0) ? (size_t)len : UPDATE_SIZE_UNKNOWN)) {
-            err = String("Update.begin: ") + Update.errorString();
-            http.end();
-            return false;
-        }
-        WiFiClient* stream = http.getStreamPtr();
-        if (!stream) {
-            err = "no stream";
-            Update.abort();
-            http.end();
-            return false;
-        }
-        size_t written = 0;
-        uint8_t  buf[1024];
-        if (len > 0) {
-            size_t n = (size_t)len;
-            while (written < n) {
-                size_t want = n - written;
-                if (want > sizeof(buf)) want = sizeof(buf);
-                int r = stream->readBytes((char*)buf, want);
-                if (r <= 0) {
-                    delay(2);
-                    continue;
-                }
-                if (Update.write(buf, (size_t)r) != (size_t)r) {
-                    err = String("write: ") + Update.errorString();
-                    Update.abort();
-                    http.end();
+                if (!http.begin(cl, tryUrl)) {
+                    err = "http begin (bin) failed";
                     return false;
                 }
-                written += (size_t)r;
-            }
-        } else {
-            while (http.connected() || stream->available()) {
-                size_t av = stream->available();
-                if (!av) { delay(1); continue; }
-                if (av > sizeof(buf)) av = sizeof(buf);
-                int r = stream->readBytes((char*)buf, av);
-                if (r <= 0) continue;
-                if (Update.write(buf, (size_t)r) != (size_t)r) {
-                    err = String("write: ") + Update.errorString();
-                    Update.abort();
-                    http.end();
+            } else {
+                WiFiClient cl;
+                if (!http.begin(cl, tryUrl)) {
+                    err = "http begin (bin) failed";
                     return false;
                 }
             }
+            http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
+            code  = http.GET();
+            len   = (int)http.getSize();
+            rbody = (code == 200) ? String() : http.getString();
+            if (code != 200) {
+                http.end();
+                err = "GET " + String(code) + " " + rbody;
+                if (att == 0 && tryUrl.startsWith("http://") && tkwmErrSuggestsHttps_(rbody, err)) continue;
+                return false;
+            }
+            if (!Update.begin((len > 0) ? (size_t)len : UPDATE_SIZE_UNKNOWN)) {
+                err = String("Update.begin: ") + Update.errorString();
+                http.end();
+                return false;
+            }
+            WiFiClient* stream = http.getStreamPtr();
+            if (!stream) {
+                err = "no stream";
+                Update.abort();
+                http.end();
+                return false;
+            }
+            size_t    written = 0;
+            uint8_t  buf[1024];
+            if (len > 0) {
+                size_t n = (size_t)len;
+                while (written < n) {
+                    size_t want = n - written;
+                    if (want > sizeof(buf)) want = sizeof(buf);
+                    int r = stream->readBytes((char*)buf, want);
+                    if (r <= 0) {
+                        delay(2);
+                        continue;
+                    }
+                    if (Update.write(buf, (size_t)r) != (size_t)r) {
+                        err = String("write: ") + Update.errorString();
+                        Update.abort();
+                        http.end();
+                        return false;
+                    }
+                    written += (size_t)r;
+                }
+            } else {
+                while (http.connected() || stream->available()) {
+                    size_t av = stream->available();
+                    if (!av) { delay(1); continue; }
+                    if (av > sizeof(buf)) av = sizeof(buf);
+                    int r = stream->readBytes((char*)buf, av);
+                    if (r <= 0) continue;
+                    if (Update.write(buf, (size_t)r) != (size_t)r) {
+                        err = String("write: ") + Update.errorString();
+                        Update.abort();
+                        http.end();
+                        return false;
+                    }
+                }
+            }
+            http.end();
         }
-        http.end();
+        break; // success
     }
     if (!Update.end(true)) {
         err = String("Update.end: ") + Update.errorString();
