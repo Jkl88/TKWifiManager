@@ -1,1 +1,10 @@
 TKWifiManager	KEYWORD1
+begin	KEYWORD2
+loop	KEYWORD2
+isFilesystemOk	KEYWORD2
+addRoute	KEYWORD2
+setUserWsHook	KEYWORD2
+web	KEYWORD2
+ws	KEYWORD2
+inCaptive	KEYWORD2
+ip	KEYWORD2

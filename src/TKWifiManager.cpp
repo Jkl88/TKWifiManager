@@ -1,5 +1,15 @@
 #include "TKWifiManager.h"
 #include "esp_wifi.h"
+#include <HTTPClient.h>
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+#include <cstring>
+
+// Токен порта встроен в JS как число, чтобы встроенные HTML совпадали с макросом TKWM_WS_PORT
+#ifndef TKWM_XSTR
+#define TKWM_XSTR2(x) #x
+#define TKWM_XSTR(x)  TKWM_XSTR2(x)
+#endif
 
 // forward declaration (определение — ниже, перед wsRunScanAndPublish)
 static void ensureWifiForScan_();
@@ -69,7 +79,7 @@ const list=$("#list"), st=$("#st"), ssid=$("#ssid"), pass=$("#pass"), msg=$("#ms
 let ws;
 
 function connectWS(){
-  ws = new WebSocket('ws://'+location.hostname+':81/');
+  ws = new WebSocket('ws://'+location.hostname+':'+)HTML" TKWM_XSTR(TKWM_WS_PORT) R"HTML(+'/');
   ws.onopen = ()=>{ st.textContent='WS ok'; ws.send('status'); ws.send('scan'); loadSaved(); };
   ws.onclose = ()=>{ st.textContent='WS close'; setTimeout(connectWS,800); };
   ws.onmessage = e=>{
@@ -279,40 +289,8 @@ drop.addEventListener("drop",e=>uploadFiles(e.dataTransfer.files));
 window.addEventListener("load",()=>{initEditor();refreshList();});
 </script></body></html>)HTML";
 
-static const char OTA_HTML[] PROGMEM = R"HTML(<!doctype html>
-<html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OTA обновление</title>
-<script>(function(){try{var t=localStorage.getItem('tkwm-theme');if(t&&t!=='system')document.documentElement.dataset.theme=t;}catch(_){}})()</script>
-<style>
-:root{--bg:#0b1220;--card:#0d1728;--surface:#0f1a2c;--ink:#e8eef7;--mut:#9fb3d1;--br:#1b2a44;--btn:#143057;--link:#9fd0ff;--ok:#95ffa1;--err:#ff9a9a}
-:root[data-theme="light"]{--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}
-@media(prefers-color-scheme:light){:root:not([data-theme]){--bg:#f0f4f8;--card:#fff;--surface:#e4eaf2;--ink:#1a2236;--mut:#5a7090;--br:#c5d0e0;--btn:#2563eb;--link:#1d4ed8;--ok:#16a34a;--err:#dc2626}}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,-apple-system,Segoe UI,Roboto}
-.wrap{max-width:720px;margin:auto;padding:20px}.card{background:var(--card);border:1px solid var(--br);border-radius:14px;padding:16px}
-h1{font-size:18px;margin:0 0 12px}
-input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--br);background:var(--surface);color:var(--ink)}
-button{background:var(--btn);cursor:pointer}
-a{color:var(--link);text-decoration:none}
-.bar{height:12px;border:1px solid var(--br);border-radius:999px;overflow:hidden;background:var(--surface);margin-top:10px}
-.fill{height:100%;width:0%}.ok{color:var(--ok)}.err{color:var(--err)}.mut{color:var(--mut)}
-</style><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script></head><body><div class="wrap"><div class="card">
-<h1>OTA обновление прошивки</h1>
-<form id="f" class="row"><input id="bin" type="file" accept=".bin" required><button id="go">🚀 Обновить</button>
-<a class="mut" href="/">Главная</a>    <a class="mut" href="/fs">Файлы</a>    <a class="mut" href="/wifi">Wi-Fi</a></form>
-<div class="bar"><div class="fill" id="fill"></div></div><div id="log" class="mut" style="margin-top:8px"></div>
-</div></div>
-<script>
-const $=s=>document.querySelector(s); const form=$("#f"),bin=$("#bin"),go=$("#go"),fill=$("#fill"),log=$("#log");
-form.addEventListener("submit",ev=>{
-  ev.preventDefault(); const file=bin.files&&bin.files[0]; if(!file)return; go.disabled=true; log.textContent="Загрузка...";
-  const xhr=new XMLHttpRequest(); xhr.upload.onprogress=e=>{ if(e.lengthComputable) fill.style.width=Math.round(e.loaded*100/e.total)+"%"; };
-  xhr.onreadystatechange=()=>{ if(xhr.readyState===4){ go.disabled=false;
-    if(xhr.status===200){ fill.style.width="100%"; log.innerHTML="<span class='ok'>Готово. Перезагрузка...</span>"; }
-    else{ log.innerHTML="<span class='err'>Ошибка: "+xhr.status+" "+xhr.statusText+"</span>"; } } };
-  const fd=new FormData(); fd.append("file",file,file.name); xhr.open("POST","/ota"); xhr.send(fd);
-});
-</script></body></html>)HTML";
+// Встроенный /ota: правьте src/ota.html, затем py src/_gen_ota_inc.py → TKWifiManager_ota.inc
+#include "TKWifiManager_ota.inc"
 
 static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
@@ -331,15 +309,28 @@ a{color:var(--link);text-decoration:none}
 </style><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script></head><body><div class="wrap"><div class="card">
 <h1>TK Wi-Fi Manager</h1>
 <div id="st" class="mut">...</div>
+<div id="otah" class="mut" style="display:none;margin-top:8px"><a href="/ota">Доступно обновление прошивки (ESPConnect)</a></div>
 <div class="row" style="margin-top:10px">
 <a href="/wifi"><button>Wi-Fi</button></a>
 <a href="/fs"><button>Файлы</button></a>
 <a href="/ota"><button>OTA</button></a>
 </div>
 <script>
-const st=document.getElementById('st'); const ws=new WebSocket('ws://'+location.hostname+':81/');
+const st=document.getElementById('st'),otah=document.getElementById('otah');
+const ws=new WebSocket('ws://'+location.hostname+':'+)HTML" TKWM_XSTR(TKWM_WS_PORT) R"HTML(+'/');
 ws.onopen=()=>ws.send('status');
 ws.onmessage=e=>{ try{const j=JSON.parse(e.data); if(j.type==='status') st.innerHTML=(j.mode==='AP'?'AP (каптив)':'STA')+' • IP: <b>'+ (j.ip||'-') +'</b>'; }catch(_){ } };
+setTimeout(function(){
+ try{
+  var sk=localStorage.getItem('tkwm_ota_skip')||'';
+  fetch('/api/ota/config').then(function(r){ return r.json(); }).then(function(c){
+   if(!c||!c.ok||!c.hasCreds||!c.auto) return;
+   return fetch('/api/ota/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:c.host,token:c.token,skipVersion:sk.trim()})});
+  }).then(function(x){ if(!x) return; return x.json?x.json():null; }).then(function(j){
+   if(j&&j.ok&&j.updateAvailable&&otah) otah.style.display='block';
+  });
+ }catch(_){ }
+},900);
 </script>
 </div></div></body></html>)HTML";
 
@@ -347,6 +338,76 @@ const char* TKWifiManager::builtinIndex() { return INDEX_HTML; }
 const char* TKWifiManager::builtinWifi() { return WIFI_HTML; }
 const char* TKWifiManager::builtinFs() { return FS_HTML; }
 const char* TKWifiManager::builtinOta() { return OTA_HTML; }
+
+// ===== Устойчивый разбор "ssid" / "password" из тела JSON (без внешних библиотек) =====
+static int tkwmHex4_(const char* p) {
+    int v = 0;
+    for (int i = 0; i < 4; i++) {
+        char c = p[i];
+        int d;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = 10 + c - 'a';
+        else if (c >= 'A' && c <= 'F') d = 10 + c - 'A';
+        else
+            return -1;
+        v = (v << 4) | d;
+    }
+    return v;
+}
+static void tkwmUtf8AppendCp_(String& s, uint32_t cp) {
+    if (cp < 0x80)
+        s += (char)cp;
+    else if (cp < 0x800) {
+        s += (char)(0xC0 | (cp >> 6));
+        s += (char)(0x80 | (cp & 0x3F));
+    } else {
+        s += (char)(0xE0 | (cp >> 12));
+        s += (char)(0x80 | ((cp >> 6) & 0x3F));
+        s += (char)(0x80 | (cp & 0x3F));
+    }
+}
+/** true если ключ найден; out — разобранное (пустая строка допустима) */
+static bool tkwmJsonGetString(const String& j, const char* key, String& out) {
+    const String keyPat = String("\"") + key + String("\"");
+    int k = j.indexOf(keyPat);
+    if (k < 0) return false;
+    k = j.indexOf(':', k);
+    if (k < 0) return false;
+    int n = (int)j.length();
+    int i = k + 1;
+    while (i < n && (j[i] == ' ' || j[i] == '\t' || j[i] == '\r' || j[i] == '\n')) i++;
+    if (i >= n || j[i] != '\"') return false;
+    i++;
+    out = "";
+    while (i < n) {
+        char c = (char)j[i];
+        if (c == '\"') return true;
+        if (c == '\\' && i + 1 < n) {
+            char t = (char)j[i + 1];
+            if (t == '\"' || t == '\\' || t == '/') {
+                out += t;
+                i += 2;
+                continue;
+            }
+            if (t == 'b') { out += '\b'; i += 2; continue; }
+            if (t == 'f') { out += '\f'; i += 2; continue; }
+            if (t == 'n') { out += '\n'; i += 2; continue; }
+            if (t == 'r') { out += '\r'; i += 2; continue; }
+            if (t == 't') { out += '\t'; i += 2; continue; }
+            if (t == 'u' && i + 6 < n) {
+                int h = tkwmHex4_(j.c_str() + i + 2);
+                if (h >= 0) {
+                    tkwmUtf8AppendCp_(out, (uint32_t)h);
+                    i += 6;
+                    continue;
+                }
+            }
+        }
+        out += c;
+        i++;
+    }
+    return false;
+}
 
 // ========================= Реализация ==========================
 TKWifiManager::TKWifiManager(uint16_t httpPort)
@@ -368,7 +429,8 @@ bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
         _fsOk = TKWM_FS.begin(true);
     }
     Serial.printf("[TKWM] FS mount: %s\n", _fsOk ? "OK" : "FAIL");
-    
+    loadOtaConf_();
+
     // Wi-Fi creds
     loadCreds();
 
@@ -388,10 +450,13 @@ bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
 
     // UDP discovery
     _udp.begin(TKWM_DISCOVERY_PORT);
-    return true;
+    return true; // HTTP/WS готовы; состояние ФС — isFilesystemOk()
 }
 
 void TKWifiManager::loop() {
+    if (_otaRestartPending && millis() >= _otaRestartAt) {
+        ESP.restart();
+    }
     if (_captiveMode) _dns.processNextRequest();
     _server.handleClient();
     _ws.loop();
@@ -518,6 +583,11 @@ void TKWifiManager::setupRoutes() {
     // OTA
     _server.on("/ota", HTTP_GET, [this] { handleOtaPage(); });
     _server.on("/ota", HTTP_POST, [this] { handleOtaFinish(); }, [this] { handleOtaUpload(); });
+    _server.on("/api/ota/info", HTTP_GET, [this] { handleOtaInfo(); });
+    _server.on("/api/ota/config", HTTP_GET, [this] { handleOtaConfig(); });
+    _server.on("/api/ota/check", HTTP_POST, [this] { handleOtaCheck(); });
+    _server.on("/api/ota/install", HTTP_POST, [this] { handleOtaInstall(); });
+    _server.on("/api/ota/save", HTTP_POST, [this] { handleOtaSaveSettings(); });
 
     // 404
     _server.onNotFound([this] { handleNotFound(); });
@@ -562,23 +632,18 @@ void TKWifiManager::handleWifiPage() {
 }
 
 void TKWifiManager::handleWifiSave() {
-    if (!_server.hasArg("plain")) { _server.send(400, "application/json", "{\"ok\":false}"); return; }
-    String body = _server.arg("plain");
-    String ssid, pass;
+    if (!_server.hasArg("plain")) {
+        _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
+        return;
+    }
+    const String body = _server.arg("plain");
+    String          ssid, pass;
 
-    // простой JSON без ArduinoJson
-    int ps = body.indexOf("\"ssid\"");
-    if (ps >= 0) {
-        int q1 = body.indexOf('"', body.indexOf(':', ps) + 1);
-        int q2 = body.indexOf('"', q1 + 1);
-        if (q1 >= 0 && q2 > q1) ssid = body.substring(q1 + 1, q2);
+    if (!tkwmJsonGetString(body, "ssid", ssid)) {
+        _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"ssid required\"}");
+        return;
     }
-    ps = body.indexOf("\"password\"");
-    if (ps >= 0) {
-        int q1 = body.indexOf('"', body.indexOf(':', ps) + 1);
-        int q2 = body.indexOf('"', q1 + 1);
-        if (q1 >= 0 && q2 > q1) pass = body.substring(q1 + 1, q2);
-    }
+    if (!tkwmJsonGetString(body, "password", pass)) pass = "";
 
     if (ssid.isEmpty()) { _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"ssid empty\"}"); return; }
 
@@ -857,8 +922,15 @@ void TKWifiManager::handleUploadDone() {
 
     if (_fsOk && TKWM_FS.exists(to)) {
         File f = TKWM_FS.open(to, "r");
-        if (f) { sz = f.size(); f.close(); }
-        ok = (sz > 0 || to.endsWith("/")); // для директорий размер 0 норм
+        if (f) {
+            if (f.isDirectory()) {
+                f.close();
+            } else {
+                sz = f.size();
+                f.close();
+                ok = true; // в т.ч. пустой файл (0 байт)
+            }
+        }
     }
 
     String resp = "<!doctype html><meta charset='utf-8'>";
@@ -923,12 +995,366 @@ void TKWifiManager::handleOtaFinish() {
             "<h3 style='color:#95ffa1'>Готово</h3>"
             "<p>Перезагрузка...</p><script>setTimeout(()=>location.href='/',4000)</script>");
         _server.send(200, "text/html; charset=utf-8", html);
-        delay(1500);
-        ESP.restart();
+        _otaRestartPending = true;
+        _otaRestartAt      = millis() + 400;
     }
 }
 
-// ===== notFound =====
+// ============== ESPConnect (сервер ESPTools) OTA ==============
+static String tkwmNormHost_(String h) {
+    h.trim();
+    while (h.length() > 0 && h.endsWith("/")) h.remove(h.length() - 1);
+    return h;
+}
+static void tkwmAppJsonVal_(String& o, const String& s) {
+    for (uint32_t i = 0; i < s.length(); ++i) {
+        char c = s[i];
+        if (c == '"' || c == '\\') o += '\\';
+        o += c;
+    }
+}
+
+void TKWifiManager::loadOtaConf_() {
+    _otaConfLoaded = true;
+    _otaFileHost   = "";
+    _otaFileToken  = "";
+    _otaFileAuto   = -1;
+    if (!_fsOk || !TKWM_FS.exists("/ota.conf")) return;
+    File f = TKWM_FS.open("/ota.conf", "r");
+    if (!f) return;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0 || line[0] == '#') continue;
+        int e = line.indexOf('=');
+        if (e < 0) continue;
+        String k = line.substring(0, e);
+        k.trim();
+        String v = line.substring(e + 1);
+        v.trim();
+        if (k == "host") {
+            _otaFileHost = v;
+        } else if (k == "token") {
+            _otaFileToken = v;
+        } else if (k == "auto") {
+            v.toLowerCase();
+            if (v == "1" || v == "true" || v == "yes" || v == "on")
+                _otaFileAuto = 1;
+            else
+                _otaFileAuto = 0;
+        }
+    }
+    f.close();
+}
+
+String TKWifiManager::otaConfigHost_() { return tkwmNormHost_(_otaFileHost); }
+String TKWifiManager::otaConfigToken_() { return _otaFileToken; }
+bool   TKWifiManager::otaConfigAuto_() {
+    if (_otaFileAuto >= 0) return (bool)_otaFileAuto;
+    _prefs.begin("tkw_ota", true);
+    bool a = _prefs.getBool("auto", false);
+    _prefs.end();
+    return a;
+}
+
+void TKWifiManager::handleOtaInfo() {
+    if (!_otaConfLoaded) loadOtaConf_();
+    String ctrl = String(ESP.getChipModel());
+    String out  = F("{\"ok\":true,\"controller\":\"");
+    tkwmAppJsonVal_(out, ctrl);
+    out += F("\",\"currentVersion\":\"");
+    tkwmAppJsonVal_(out, String(TKWM_FW_VERSION));
+    out += F("\"}");
+    _server.send(200, "application/json", out);
+}
+
+void TKWifiManager::handleOtaConfig() {
+    if (!_otaConfLoaded) loadOtaConf_();
+    const String  h  = tkwmNormHost_(_otaFileHost);
+    const String& tk = _otaFileToken;
+    const bool    au = otaConfigAuto_();
+    String        out;
+    out.reserve(128 + h.length() + tk.length());
+    out = F("{\"ok\":true,\"host\":\"");
+    tkwmAppJsonVal_(out, h);
+    out += F("\",\"token\":\"");
+    tkwmAppJsonVal_(out, tk);
+    out += F("\",\"auto\":");
+    out += au ? "true" : "false";
+    out += F(",\"hasCreds\":");
+    out += (h.length() && tk.length()) ? "true" : "false";
+    out += "}";
+    _server.send(200, "application/json", out);
+}
+
+void TKWifiManager::handleOtaSaveSettings() {
+    if (!_server.hasArg("plain")) {
+        _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
+        return;
+    }
+    const String& b  = _server.arg("plain");
+    bool         au  = false;
+    int           p  = b.indexOf(F("\"auto\""));
+    if (p >= 0) {
+        p = b.indexOf(':', p);
+        if (p > 0) {
+            p++;
+            const int n = (int)b.length();
+            while (p < n && (b[(unsigned)p] == ' ' || b[(unsigned)p] == '\t' || b[(unsigned)p] == '\r' || b[(unsigned)p] == '\n')) p++;
+            if (b.substring(p, p + 4) == "true")
+                au = true;
+        }
+    }
+    _prefs.begin("tkw_ota", false);
+    _prefs.putBool("auto", au);
+    _prefs.end();
+    _server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// POST resolve-download на ESPConnect; out: firmware_version, download_url, latest_firmware_version, err
+static bool tkwmEsptoolsResolve_(const String& base, const String& token, const String& controller, String& fw, String& dl, String& latest, String& err) {
+    String url  = tkwmNormHost_(base);
+    String post = F("{\"controller\":\"");
+    tkwmAppJsonVal_(post, controller);
+    post += F("\",\"firmware_type\":\"firmware\"}");
+    url += F("/api/firmware/resolve-download");
+    if (url.indexOf("://") < 0) {
+        err = "bad host";
+        return false;
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+        err = "no internet (Wi-Fi not connected)";
+        return false;
+    }
+    int    code = 0;
+    String r;
+    {
+        HTTPClient http;
+        http.setConnectTimeout(15000);
+        http.setTimeout(30000);
+        if (url.startsWith("https://")) {
+            WiFiClientSecure cl;
+#if TKWM_OTA_INSECURE
+            cl.setInsecure();
+#endif
+            if (!http.begin(cl, url)) {
+                err = "http begin failed";
+                return false;
+            }
+        } else {
+            WiFiClient cl;
+            if (!http.begin(cl, url)) {
+                err = "http begin failed";
+                return false;
+            }
+        }
+        http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
+        http.addHeader(F("Content-Type"), F("application/json"));
+        code = http.POST(post);
+        r    = http.getString();
+        http.end();
+    }
+    if (code < 0) {
+        err = "HTTP error " + String(code);
+        return false;
+    }
+    if (code < 200 || code >= 300) {
+        err = "server HTTP " + String(code);
+        if (r.length() && r.length() < 512) err += ": " + r;
+        String d;
+        if (tkwmJsonGetString(r, "detail", d) && d.length()) err = d;
+        return false;
+    }
+    if (!tkwmJsonGetString(r, "download_url", dl) || dl.isEmpty()) {
+        err = "no download_url in response";
+        return false;
+    }
+    if (!tkwmJsonGetString(r, "firmware_version", fw)) fw = "";
+    if (!tkwmJsonGetString(r, "latest_firmware_version", latest)) latest = "";
+    return true;
+}
+
+void TKWifiManager::handleOtaCheck() {
+    if (!_server.hasArg("plain")) {
+        _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
+        return;
+    }
+    if (!_otaConfLoaded) loadOtaConf_();
+    const String body = _server.arg("plain");
+    String         hostI, tokenI, skipI;
+    tkwmJsonGetString(body, "host", hostI);
+    tkwmJsonGetString(body, "token", tokenI);
+    tkwmJsonGetString(body, "skipVersion", skipI);
+    String h = tkwmNormHost_(hostI);
+    if (h.isEmpty()) h = tkwmNormHost_(_otaFileHost);
+    String tk = tokenI;
+    if (tk.isEmpty()) tk = _otaFileToken;
+    if (h.isEmpty() || tk.isEmpty()) {
+        _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"host and token required\"}");
+        return;
+    }
+    String          ctrl   = String(ESP.getChipModel());
+    String          fw, dl, latest, e;
+    if (!tkwmEsptoolsResolve_(h, tk, ctrl, fw, dl, latest, e)) {
+        String o = F("{\"ok\":false,\"msg\":\"");
+        tkwmAppJsonVal_(o, e);
+        o += F("\"}");
+        _server.send(200, "application/json", o);
+        return;
+    }
+    if (!fw.length() && !latest.length()) {
+        _server.send(200, "application/json", "{\"ok\":true,\"updateAvailable\":false,\"msg\":\"no version in response\"}");
+        return;
+    }
+    const String cur    = F(TKWM_FW_VERSION);
+    String       remoteV = fw.length() ? fw : latest;
+    const bool   skipB   = (skipI.length() > 0) && (skipI == remoteV);
+    const bool   upd     = (remoteV != cur) && !skipB;
+    String       out     = F("{\"ok\":true,\"updateAvailable\":");
+    out += upd ? "true" : "false";
+    out += F(",\"currentVersion\":\"");
+    tkwmAppJsonVal_(out, cur);
+    out += F("\",\"remoteVersion\":\"");
+    tkwmAppJsonVal_(out, remoteV);
+    out += F("\",\"controller\":\"");
+    tkwmAppJsonVal_(out, ctrl);
+    (void)dl;
+    out += F("\"}");
+    _server.send(200, "application/json", out);
+}
+
+static bool tkwmEsptoolsDownloadOta_(const String& base, const String& token, const String& controller, String& err) {
+    if (WiFi.status() != WL_CONNECTED) {
+        err = "no internet (Wi-Fi not connected)";
+        return false;
+    }
+    String fw, dl, latest, e2;
+    if (!tkwmEsptoolsResolve_(base, token, controller, fw, dl, latest, e2)) {
+        err = e2;
+        return false;
+    }
+    String url = tkwmNormHost_(base) + dl;
+    if (!url.startsWith("http")) {
+        err = "bad download URL";
+        return false;
+    }
+    {
+        HTTPClient      http;
+        http.setConnectTimeout(15000);
+        http.setTimeout(60000);
+        int code = 0;
+        if (url.startsWith("https://")) {
+            WiFiClientSecure cl;
+#if TKWM_OTA_INSECURE
+            cl.setInsecure();
+#endif
+            if (!http.begin(cl, url)) {
+                err = "http begin (bin) failed";
+                return false;
+            }
+        } else {
+            WiFiClient cl;
+            if (!http.begin(cl, url)) {
+                err = "http begin (bin) failed";
+                return false;
+            }
+        }
+        http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
+        code    = http.GET();
+        int len = (int)http.getSize();
+        if (code != 200) {
+            err = "GET " + String(code) + " " + http.getString();
+            http.end();
+            return false;
+        }
+        if (!Update.begin((len > 0) ? (size_t)len : UPDATE_SIZE_UNKNOWN)) {
+            err = String("Update.begin: ") + Update.errorString();
+            http.end();
+            return false;
+        }
+        WiFiClient* stream = http.getStreamPtr();
+        if (!stream) {
+            err = "no stream";
+            Update.abort();
+            http.end();
+            return false;
+        }
+        size_t written = 0;
+        uint8_t  buf[1024];
+        if (len > 0) {
+            size_t n = (size_t)len;
+            while (written < n) {
+                size_t want = n - written;
+                if (want > sizeof(buf)) want = sizeof(buf);
+                int r = stream->readBytes((char*)buf, want);
+                if (r <= 0) {
+                    delay(2);
+                    continue;
+                }
+                if (Update.write(buf, (size_t)r) != (size_t)r) {
+                    err = String("write: ") + Update.errorString();
+                    Update.abort();
+                    http.end();
+                    return false;
+                }
+                written += (size_t)r;
+            }
+        } else {
+            while (http.connected() || stream->available()) {
+                size_t av = stream->available();
+                if (!av) { delay(1); continue; }
+                if (av > sizeof(buf)) av = sizeof(buf);
+                int r = stream->readBytes((char*)buf, av);
+                if (r <= 0) continue;
+                if (Update.write(buf, (size_t)r) != (size_t)r) {
+                    err = String("write: ") + Update.errorString();
+                    Update.abort();
+                    http.end();
+                    return false;
+                }
+            }
+        }
+        http.end();
+    }
+    if (!Update.end(true)) {
+        err = String("Update.end: ") + Update.errorString();
+        return false;
+    }
+    return true;
+}
+
+void TKWifiManager::handleOtaInstall() {
+    if (!_server.hasArg("plain")) {
+        _server.send(400, "application/json", "{\"ok\":false,\"msg\":\"no body\"}");
+        return;
+    }
+    if (!_otaConfLoaded) loadOtaConf_();
+    const String body = _server.arg("plain");
+    String         hostI, tokenI;
+    tkwmJsonGetString(body, "host", hostI);
+    tkwmJsonGetString(body, "token", tokenI);
+    String h  = tkwmNormHost_(hostI);
+    if (h.isEmpty()) h = tkwmNormHost_(_otaFileHost);
+    String tk = tokenI;
+    if (tk.isEmpty()) tk = _otaFileToken;
+    if (h.isEmpty() || tk.isEmpty()) {
+        _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"host and token required\"}");
+        return;
+    }
+    String   errS;
+    String   ctrl = String(ESP.getChipModel());
+    if (!tkwmEsptoolsDownloadOta_(h, tk, ctrl, errS)) {
+        String o = F("{\"ok\":false,\"msg\":\"");
+        tkwmAppJsonVal_(o, errS);
+        o += F("\"}");
+        _server.send(200, "application/json", o);
+        return;
+    }
+    _server.send(200, "application/json", F("{\"ok\":true,\"msg\":\"reboot\"}"));
+    _otaRestartPending = true;
+    _otaRestartAt      = millis() + 500;
+}
+
 void TKWifiManager::handleNotFound() {
     String uri = _server.uri();
     if (_fsOk && streamIfExists(uri)) return;
@@ -987,34 +1413,19 @@ static void ensureWifiForScan_() {
         esp_wifi_set_mode(WIFI_MODE_APSTA);
     }
     // задать страну/политику — чтобы скан ходил по всем 1..13
-    wifi_country_t ctry = {
-      .cc = "EU",              // или "00" (world), но "EU" стабильно даёт 1..13
-      .schan = 1,
-      .nchan = 13,
-      .max_tx_power = 20,
-      .policy = WIFI_COUNTRY_POLICY_MANUAL
-    };
+    wifi_country_t ctry = {};
+    strncpy((char*)ctry.cc, TKWM_WIFI_COUNTRY, sizeof(ctry.cc));
+    ctry.cc[sizeof(ctry.cc) - 1] = '\0';
+    ctry.schan        = 1;
+    ctry.nchan        = 13;
+    ctry.max_tx_power = 20;
+    ctry.policy       = WIFI_COUNTRY_POLICY_MANUAL;
     esp_wifi_set_country(&ctry);
     // выключим power save — скану так легче
     esp_wifi_set_ps(WIFI_PS_NONE);
 
     // убедимся, что стек реально запущен
     esp_wifi_start();
-}
-
-// --- сериализация ssid с экранированием в JSON ---
-static inline void appendEscapedSsid_(String& out, const uint8_t* ssid, uint8_t len) {
-    out += '\"';
-    for (uint8_t i = 0; i < len; ++i) {
-        char c = (char)ssid[i];
-        if (c == '\"' || c == '\\') { out += '\\'; out += c; }
-        else if ((uint8_t)c < 0x20) {
-            char esc[7]; snprintf(esc, sizeof(esc), "\\u%04X", (unsigned char)c);
-            out += esc;
-        }
-        else out += c;
-    }
-    out += '\"';
 }
 
 // --- основной сканер (три попытки) ---

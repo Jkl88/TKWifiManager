@@ -17,6 +17,7 @@
 - [Пользовательский WS-хук](#пользовательский-ws-хук)
 - [Компиляционные макросы](#компиляционные-макросы)
 - [UDP-discovery](#udp-discovery)
+- [ESPConnect OTA (ESPTools)](#espconnect-ota-esptools)
 - [Полный пример](#полный-пример)
 - [Частые вопросы](#частые-вопросы)
 
@@ -48,8 +49,8 @@
 
 ### OTA (через браузер)
 
-- Страница `/ota` — форма с прогресс-баром.
-- `POST /ota` — загрузка `.bin`, `Update.begin/write/end`, авто-перезагрузка.
+- Страница `/ota` — ручная загрузка `.bin` с ПК (multipart) и, отдельно, проверка/установка с бэкенда ESPConnect (см. [ESPConnect OTA](#espconnect-ota-esptools)).
+- `POST /ota` — загрузка `.bin` в прошивку, `Update.begin/write/end`, авто-перезагрузка.
 
 ### UDP-discovery
 
@@ -70,21 +71,23 @@
 ## Быстрый старт
 
 ```cpp
-#include "TKWifiManager.h"
+#include <TKWifiManager.h>
 
 TKWifiManager wifiMgr(80);
 
 void setup() {
     Serial.begin(115200);
-    // Первый аргумент — префикс SSID точки доступа
-    // Второй — форматировать FS если не монтируется (true по умолчанию)
-    wifiMgr.begin("MyDevice");
+    // 1) префикс SSID  2) true = отформатировать FS при сбое монтирования (только на «пустой» плате; иначе false)
+    wifiMgr.begin("MyDevice", false);
+    // if (!wifiMgr.isFilesystemOk()) { /* веб из PROGMEM, без полноценного /fs */ }
 }
 
 void loop() {
     wifiMgr.loop();
 }
 ```
+
+> **Безопасность:** OTA, FS и смена Wi-Fi в веб-интерфейсе **без пароля**. В ненадёжных сетях и в продакшене ограничьте доступ (свой слой аутентификации, VPN, изолированный AP и т.д.).
 
 После загрузки: если нет сохранённых сетей — поднимается AP `MyDevice-XXXXXX`.  
 Откройте `http://192.168.4.1/wifi` для настройки.
@@ -93,35 +96,33 @@ void loop() {
 
 ## PlatformIO
 
+Содержимое **репозитория не задумано** как «один прошиваемый корень» PlatformIO: подключайте библиотеку как зависимость к своему `platformio.ini` или смотрите готовый пример в `extras/PlatformioBasic/`.
+
 Библиотека работает **только с Arduino framework** на ESP32.  
 ESP-IDF native не поддерживается (используются `WebServer`, `Preferences`, `LittleFS`, `DNSServer`, `Update` — Arduino-обёртки).
 
-### platformio.ini (минимальный)
+### `platformio.ini` в *вашей* прошивке (минимум)
 
 ```ini
 [env:esp32dev]
 platform  = espressif32
 board     = esp32dev
 framework = arduino
-
-board_build.partitions = min_spiffs.csv   ; минимум 1 МБ под LittleFS
-
+board_build.partitions = min_spiffs.csv
 lib_deps =
+    https://github.com/Jkl88/TKWifiManager.git
     links2004/WebSockets @ ^2.4.1
-
-build_flags =
-    -DTKWM_USE_LITTLEFS=1
-
+build_flags = -DTKWM_USE_LITTLEFS=1
 monitor_speed = 115200
 ```
 
-### Загрузка файлов в LittleFS
+### Пример в репозитории
 
-Положите файлы в папку `data/` и выполните:
+Папка **`extras/PlatformioBasic`** — откройте её в PlatformIO как отдельный проект. Там `lib_deps = file://../..` указывает на корень библиотеки. Команда: `pio run`.
 
-```
-pio run -e esp32dev_upload_fs -t uploadfs
-```
+### Загрузка LittleFS (в своём проекте)
+
+Создайте env с `board_build.filesystem = littlefs`, положите файлы в `data/`, например: `pio run -e esp32dev_upload_fs -t uploadfs` (см. `platformio.ini` в `extras/PlatformioBasic` для примера env `esp32dev_upload_fs`).
 
 ---
 
@@ -146,6 +147,11 @@ pio run -e esp32dev_upload_fs -t uploadfs
 | POST  | `/api/reconnect`       | Принудительное переподключение к лучшей известной сети. |
 | POST  | `/api/start_ap`        | Перейти в AP-режим. |
 | POST  | `/ota`                 | Загрузить прошивку `.bin`. |
+| GET   | `/api/ota/info`        | JSON: `controller` (`ESP.getChipModel()`), `currentVersion` (`TKWM_FW_VERSION`). |
+| GET   | `/api/ota/config`      | JSON: `host`, `token`, `auto`, `hasCreds` (из `ota.conf` + Preferences). |
+| POST  | `/api/ota/check`      | JSON body: `host`, `token` (опц., иначе из `ota.conf`), `skipVersion` (опц.). Ответ: `updateAvailable`, версии, ошибка ESPConnect. |
+| POST  | `/api/ota/install`    | Скачать с ESPConnect и прошить (тело как у check). |
+| POST  | `/api/ota/save`        | Сохранить `auto` в `Preferences` (JSON: `"auto": true/false`). |
 
 > **`/api/wifi/scan`** — REST-аналог WS-команды `"scan"`. Удобен для простых страниц без WebSocket (см. внешний `wifi.html` в FS).
 
@@ -153,7 +159,7 @@ pio run -e esp32dev_upload_fs -t uploadfs
 
 ## WebSocket API
 
-**Порт:** `ws://<host>:81/`
+**Порт (по умолчанию):** `ws://<host>:81/`. Меняется макросом `TKWM_WS_PORT` (в т.ч. встроенные HTML подставляют тот же номер).
 
 ### Встроенные входящие команды (текст)
 
@@ -341,7 +347,7 @@ wifiMgr.setUserWsHook([](uint8_t id, WStype_t type, const uint8_t* payload, size
 
 ## Компиляционные макросы
 
-Определите до `#include "TKWifiManager.h"`:
+Определите до `#include <TKWifiManager.h>`:
 
 | Макрос | По умолчанию | Описание |
 |--------|-------------|----------|
@@ -350,12 +356,36 @@ wifiMgr.setUserWsHook([](uint8_t id, WStype_t type, const uint8_t* payload, size
 | `TKWM_DISCOVERY_PORT` | `64242` | UDP-порт для discovery |
 | `TKWM_DISCOVERY_SIGNATURE` | `"TK_DISCOVER:1"` | Префикс UDP-запроса |
 | `TKWM_MAX_CRED` | `16` | Максимум сохранённых Wi-Fi профилей |
+| `TKWM_WIFI_COUNTRY` | `"EU"` | Код региона для `esp_wifi_set_country` (например `"00"` — world) |
+| `TKWM_FW_VERSION` | `"0.0.0"` | Версия прошивки для сравнения с сервером (в релизе: `build_flags = -DTKWM_FW_VERSION=\\\"1.2.3\\\"` в **вашем** проекте) |
+| `TKWM_OTA_INSECURE` | `0` | `1` — `WiFiClientSecure::setInsecure()` для OTA/ESPConnect (только тест/self-signed; не для продакшена) |
 
 ```cpp
 #define TKWM_WS_PORT    9000
 #define TKWM_MAX_CRED   8
-#include "TKWifiManager.h"
+#include <TKWifiManager.h>
 ```
+
+---
+
+## ESPConnect OTA (ESPTools)
+
+Сервер **ESPConnect** (ESPTools) отдаёт прошивки по API. Запросы к интернету выполняет **только ESP32** (C++), токен API не уходит в чужой origin из браузера.
+
+- **Проверка/разрешение скачивания:** `POST {host}/api/firmware/resolve-download` с заголовком `Authorization: Bearer <API JWT>`. В теле JSON: обязательно `controller` (на устройстве — `String(ESP.getChipModel())` без ручного выбора; совпадение с полем *controller* в кабинете ESPTools — ваш ответственность, при необходимости нормализуйте имя в UI сервера или в макросе), опционально `firmware_type` (по умолчанию `firmware`).
+- **Скачивание `.bin`:** `GET {host}{download_url}` из ответа (тот же `Bearer`).
+
+**Токен:** в ESPConnect нужен **API JWT, привязанный к проекту** (создаётся в UI, обычно `POST /api/tokens` с `project_name`). **Хост** в веб-форме — базовый URL бэкенда (без завершающего `/`).
+
+**Файл `ota.conf` (LittleFS, путь `/ota.conf`):** строки `key=value` — `host`, `token`, `auto` (`0`/`1`, `true`/`false` и т.д.). Пустые поля на странице `/ota` при открытии подставляются из файла. **Токен** в JSON `/api/ota/config` отдаётся в той же сети, что и веб-интерфейс; не выставляйте портал в публичную сеть без дополнительной защиты.
+
+**Флаги `auto`:** чекбокс на `/ota` сохраняет значение в `Preferences` (namespace `tkw_ota`, ключ `auto`). Если в `ota.conf` задано `auto`, оно **имеет приоритет** над `Preferences` (см. логика в библиотеке).
+
+**JSON API на устройстве (для веб-страницы):** `GET /api/ota/info` (текущая версия, контроллер), `GET /api/ota/config`, `POST /api/ota/check`, `POST /api/ota/install`, `POST /api/ota/save` (только `auto` в теле).
+
+**Версии:** договоритесь об одном формате (например SemVer) между релизами в ESPTools и `TKWM_FW_VERSION`; сравнение в прошивке — **строковое**.
+
+**Сборка встроенного HTML:** `src/ota.html` — эталон для оверлея в FS; встроенный PROGMEM генерируется в `src/TKWifiManager_ota.inc` командой `py src/_gen_ota_inc.py` из корня библиотеки.
 
 ---
 
@@ -400,7 +430,7 @@ while True:
 
 #define TKWM_USE_LITTLEFS 1
 #include <Arduino.h>
-#include "TKWifiManager.h"
+#include <TKWifiManager.h>
 
 TKWifiManager wifiMgr(80);
 
@@ -517,7 +547,7 @@ void loop() {
 Загрузите в FS `wifi.html` / `fs.html` / `ota.html` / `index.html` — сервер автоматически отдаст их вместо встроенных.
 
 **Работает ли со SPIFFS?**  
-Да: `#define TKWM_USE_LITTLEFS 0` до `#include "TKWifiManager.h"`. LittleFS рекомендуется (более надёжная).
+Да: `#define TKWM_USE_LITTLEFS 0` до `#include <TKWifiManager.h>`. LittleFS рекомендуется (более надёжная).
 
 **Как добавить поля в UDP-ответ?**  
 Отредактируйте метод `udpTick()` в `TKWifiManager.cpp` — найдите формирование `payload` и добавьте нужные поля.

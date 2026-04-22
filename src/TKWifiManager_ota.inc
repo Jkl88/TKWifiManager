@@ -1,3 +1,4 @@
+static const char OTA_HTML[] PROGMEM = R"TKWOTAEMBED99(
 <!doctype html>
 <html lang="ru">
 <head>
@@ -250,3 +251,5 @@ form.addEventListener("submit", function (ev) {
 </script>
 </body>
 </html>
+
+)TKWOTAEMBED99";

@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <functional>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -38,6 +39,21 @@
 #define TKWM_MAX_CRED 16
 #endif
 
+/** Двухсимвольный код региона Wi-Fi для esp_wifi (например "EU", "00" — world) */
+#ifndef TKWM_WIFI_COUNTRY
+#define TKWM_WIFI_COUNTRY "EU"
+#endif
+
+/** Версия прошивки для OTA/ESPConnect (в проекте: -DTKWM_FW_VERSION=\\\"1.2.3\\\") */
+#ifndef TKWM_FW_VERSION
+#define TKWM_FW_VERSION "0.0.0"
+#endif
+
+/** Для self-signed и теста: 1 = WiFiClientSecure::setInsecure (не для продакшена) */
+#ifndef TKWM_OTA_INSECURE
+#define TKWM_OTA_INSECURE 0
+#endif
+
 class TKWifiManager {
 public:
     
@@ -45,8 +61,11 @@ public:
 
     // formatFSIfNeeded=true — смонтировать FS c форматированием при первом фейле
     // apSsidPrefix — префикс SSID точки, суффикс MAC добавится автоматически
+    // Возвращает true, если HTTP/WS подняты; смонтирована ли ФС — см. isFilesystemOk()
     bool begin(const String& apSsidPrefix = "TK-Setup", bool formatFSIfNeeded = true);
     void loop();
+
+    bool isFilesystemOk() const { return _fsOk; }
 
     // доступ к веб-объектам/состоянию
     WebServer& web() { return _server; }
@@ -90,6 +109,13 @@ private:
     // пользовательский WS-хук
     WsHook _userWsHook = nullptr;
 
+    bool     _otaRestartPending = false;
+    uint32_t _otaRestartAt     = 0;
+
+    // ota.conf (кэш после loadOtaConf_)
+    String  _otaFileHost, _otaFileToken;
+    int8_t  _otaFileAuto = -1; // -1: ключа auto в файле не было
+    bool    _otaConfLoaded = false;
 
     // ===== внутреннее =====
     void  loadCreds();
@@ -123,6 +149,16 @@ private:
     void handleOtaPage();
     void handleOtaUpload();
     void handleOtaFinish();
+    // ESPConnect (ESPTools server)
+    void   handleOtaInfo();
+    void   handleOtaConfig();
+    void   handleOtaCheck();
+    void   handleOtaInstall();
+    void   handleOtaSaveSettings();
+    void   loadOtaConf_();
+    String otaConfigHost_();   // merge file
+    String otaConfigToken_();
+    bool   otaConfigAuto_();   // file или Preferences
 
     // Wi-Fi API/страницы
     void handleWifiPage();
