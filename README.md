@@ -118,7 +118,8 @@ monitor_speed = 115200
 
 ### Пример в репозитории
 
-Папка **`extras/PlatformioBasic`** — откройте её в PlatformIO как отдельный проект. Там `lib_deps = file://../..` указывает на корень библиотеки. Команда: `pio run`.
+Папка **`extras/PlatformioBasic`** — откройте её в PlatformIO как отдельный проект. Там `lib_deps = file://../..` указывает на корень библиотеки. Команда: `pio run`.  
+Опция **`custom_upload_controller`** в `platformio.ini` (один C‑токен, напр. `ESP32`) через скрипт `pre:pio_ota_controller.py` передаётся в прошивку как `-D TKWM_OTA_CONTROLLER=...` и снимает рассинхрон с полем *controller* в ESPConnect; в своём проекте скопируйте скрипт и строки `extra_scripts` / `custom_upload_controller` при необходимости.
 
 ### Загрузка LittleFS (в своём проекте)
 
@@ -147,7 +148,7 @@ monitor_speed = 115200
 | POST  | `/api/reconnect`       | Принудительное переподключение к лучшей известной сети. |
 | POST  | `/api/start_ap`        | Перейти в AP-режим. |
 | POST  | `/ota`                 | Загрузить прошивку `.bin`. |
-| GET   | `/api/ota/info`        | JSON: `controller` (`ESP.getChipModel()`), `currentVersion` (`TKWM_FW_VERSION`). |
+| GET   | `/api/ota/info`        | JSON: `controller` (см. `TKWM_OTA_CONTROLLER` / `custom_upload_controller` в PlatformIO; иначе `ESP.getChipModel()`), `currentVersion` (`TKWM_FW_VERSION`). |
 | GET   | `/api/ota/config`      | JSON: `host`, `token`, `auto`, `hasCreds` (из `ota.conf` + Preferences). |
 | POST  | `/api/ota/check`      | JSON body: `host`, `token` (опц., иначе из `ota.conf`), `skipVersion` (опц.). Ответ: `updateAvailable`, версии, ошибка ESPConnect. |
 | POST  | `/api/ota/install`    | Скачать с ESPConnect и прошить (тело как у check). |
@@ -359,6 +360,7 @@ wifiMgr.setUserWsHook([](uint8_t id, WStype_t type, const uint8_t* payload, size
 | `TKWM_WIFI_COUNTRY` | `"EU"` | Код региона для `esp_wifi_set_country` (например `"00"` — world) |
 | `TKWM_FW_VERSION` | `"0.0.0"` | Версия прошивки для сравнения с сервером (в релизе: `build_flags = -DTKWM_FW_VERSION=\\\"1.2.3\\\"` в **вашем** проекте) |
 | `TKWM_OTA_INSECURE` | `0` | `1` — `WiFiClientSecure::setInsecure()` для OTA/ESPConnect (только тест/self-signed; не для продакшена) |
+| `TKWM_OTA_CONTROLLER` | (нет) | Один идентификатор токеном в `-D` (без кавычек), напр. `-D TKWM_OTA_CONTROLLER=ESP32` — такой же *controller* уйдёт в `resolve-download` вместо `ESP.getChipModel()`. В примере `extras/PlatformioBasic` то же значение можно задать как `custom_upload_controller = ...` (скрипт `pio_ota_controller.py` подставит макрос) |
 
 ```cpp
 #define TKWM_WS_PORT    9000
@@ -372,7 +374,7 @@ wifiMgr.setUserWsHook([](uint8_t id, WStype_t type, const uint8_t* payload, size
 
 Сервер **ESPConnect** (ESPTools) отдаёт прошивки по API. Запросы к интернету выполняет **только ESP32** (C++), токен API не уходит в чужой origin из браузера.
 
-- **Проверка/разрешение скачивания:** `POST {host}/api/firmware/resolve-download` с заголовком `Authorization: Bearer <API JWT>`. В теле JSON: обязательно `controller` (на устройстве — `String(ESP.getChipModel())` без ручного выбора; совпадение с полем *controller* в кабинете ESPTools — ваш ответственность, при необходимости нормализуйте имя в UI сервера или в макросе), опционально `firmware_type` (по умолчанию `firmware`).
+- **Проверка/разрешение скачивания:** `POST {host}/api/firmware/resolve-download` с заголовком `Authorization: Bearer <API JWT>`. В теле JSON: обязательно `controller` (по умолчанию `ESP.getChipModel()`; чтобы совпадало с тем, что задано в кабинете при загрузке, задайте **`TKWM_OTA_CONTROLLER`**, либо в **PlatformIO** `custom_upload_controller` в `platformio.ini` + `pre:pio_ota_controller.py` — см. `extras/PlatformioBasic`. Значение — **один C‑токен** (буквы, цифры, подчёркивание, без пробелов/дефиса в исходнике) или `build_flags` вручную, опционально `firmware_type` (по умолчанию `firmware`).
 - **Скачивание `.bin`:** `GET {host}{download_url}` из ответа (тот же `Bearer`).
 
 **Токен:** в ESPConnect нужен **API JWT, привязанный к проекту** (создаётся в UI, обычно `POST /api/tokens` с `project_name`). **Хост** в веб-форме — базовый URL бэкенда (без завершающего `/`).

@@ -523,6 +523,10 @@ bool TKWifiManager::tryConnectBestKnown(uint32_t timeoutMs) {
     if (WiFi.status() == WL_CONNECTED) {
         _captiveMode = false;
         _dns.stop();
+        Serial.print(F("[TKWM] Wi-Fi STA: SSID="));
+        Serial.print(_creds[bestIdx].ssid);
+        Serial.print(F(" IP="));
+        Serial.println(WiFi.localIP().toString());
         return true;
     }
     return false;
@@ -543,6 +547,10 @@ void TKWifiManager::startAPCaptive() {
     WiFi.softAPConfig(ip, gw, mask);
     WiFi.softAP(_apSsid.c_str()); // без пароля, как в вашем коде
     _dns.start(53, "*", ip);
+    Serial.print(F("[TKWM] Wi-Fi AP: SSID="));
+    Serial.print(_apSsid);
+    Serial.print(F(" IP="));
+    Serial.println(WiFi.softAPIP().toString());
 }
 
 // ===================== Web/Routes =====================
@@ -1013,6 +1021,19 @@ static void tkwmAppJsonVal_(String& o, const String& s) {
         o += c;
     }
 }
+/** Символ токеном, как в C (напр. ESP32), чтобы совпадало с ESPConnect. */
+static String tkwmOtaController_() {
+#ifdef TKWM_OTA_CONTROLLER
+#define TKW_OTA_CSTR1(x) #x
+#define TKW_OTA_CSTR2(x) TKW_OTA_CSTR1(x)
+    String c = String(TKW_OTA_CSTR2(TKWM_OTA_CONTROLLER));
+#undef TKW_OTA_CSTR2
+#undef TKW_OTA_CSTR1
+    return c;
+#else
+    return String(ESP.getChipModel());
+#endif
+}
 
 void TKWifiManager::loadOtaConf_() {
     _otaConfLoaded = true;
@@ -1059,7 +1080,7 @@ bool   TKWifiManager::otaConfigAuto_() {
 
 void TKWifiManager::handleOtaInfo() {
     if (!_otaConfLoaded) loadOtaConf_();
-    String ctrl = String(ESP.getChipModel());
+    String ctrl = tkwmOtaController_();
     String out  = F("{\"ok\":true,\"controller\":\"");
     tkwmAppJsonVal_(out, ctrl);
     out += F("\",\"currentVersion\":\"");
@@ -1193,7 +1214,7 @@ void TKWifiManager::handleOtaCheck() {
         _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"host and token required\"}");
         return;
     }
-    String          ctrl   = String(ESP.getChipModel());
+    String          ctrl   = tkwmOtaController_();
     String          fw, dl, latest, e;
     if (!tkwmEsptoolsResolve_(h, tk, ctrl, fw, dl, latest, e)) {
         String o = F("{\"ok\":false,\"msg\":\"");
@@ -1342,7 +1363,7 @@ void TKWifiManager::handleOtaInstall() {
         return;
     }
     String   errS;
-    String   ctrl = String(ESP.getChipModel());
+    String   ctrl = tkwmOtaController_();
     if (!tkwmEsptoolsDownloadOta_(h, tk, ctrl, errS)) {
         String o = F("{\"ok\":false,\"msg\":\"");
         tkwmAppJsonVal_(o, errS);

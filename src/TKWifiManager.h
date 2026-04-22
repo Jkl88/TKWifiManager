@@ -54,6 +54,12 @@
 #define TKWM_OTA_INSECURE 0
 #endif
 
+/**
+ * Синхрон с полем *controller* в ESPConnect: один идентификатор токеном (без кавычек),
+ * напр. -D TKWM_OTA_CONTROLLER=ESP32 или `custom_upload_controller` в platformio.ini (см. README).
+ * Если не задано — в запросах OTA/ESPConnect подставляется `ESP.getChipModel()`.
+ */
+
 class TKWifiManager {
 public:
     
