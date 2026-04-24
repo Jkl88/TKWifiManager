@@ -161,6 +161,7 @@ private:
     void   handleOtaConfig();
     void   handleOtaCheck();
     void   handleOtaInstall();
+    void   handleOtaTunnelCreate();
     void   handleOtaSaveSettings();
     void   loadOtaConf_();
     void   writeOtaConf_(bool autoFlag);

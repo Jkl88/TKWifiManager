@@ -636,6 +636,7 @@ void TKWifiManager::setupRoutes() {
     _server.on("/api/ota/config", HTTP_GET, [this] { handleOtaConfig(); });
     _server.on("/api/ota/check", HTTP_POST, [this] { handleOtaCheck(); });
     _server.on("/api/ota/install", HTTP_POST, [this] { handleOtaInstall(); });
+    _server.on("/api/ota/tunnel/create", HTTP_POST, [this] { handleOtaTunnelCreate(); });
     _server.on("/api/ota/save", HTTP_POST, [this] { handleOtaSaveSettings(); });
 
     // 404
@@ -1108,6 +1109,8 @@ static bool tkwmErrSuggestsHttps_(const String& r, const String& err) {
     if (t.indexOf("https port") >= 0) return true;
     if (t.indexOf("plain http") >= 0 && t.indexOf("https") >= 0) return true;
     if (t.indexOf("tls") >= 0) return true;
+    if (t.indexOf("http request to an https server") >= 0) return true;
+    if (t.indexOf("client sent an http request") >= 0 && t.indexOf("https server") >= 0) return true;
     return false;
 }
 /** Тело JSON POST: в разных версиях/клиентах аргумент может называться иначе, чем "plain". */
@@ -1355,6 +1358,73 @@ static bool tkwmEsptoolsResolve_(const String& base, const String& token, const 
     return false;
 }
 
+/** POST JSON на ESPConnect (Bearer), с тем же http→https повтором, что и resolve. */
+static bool tkwmEsptoolsPostJson_(const String& base, const String& token, const String& pathSuffix, const String& jsonBody, String& respOut, String& err) {
+    if (WiFi.status() != WL_CONNECTED) {
+        err = "no internet (Wi-Fi not connected)";
+        return false;
+    }
+    const String sufx = pathSuffix.startsWith("/") ? pathSuffix : (String("/") + pathSuffix);
+    String         baseN = tkwmNormHost_(base);
+    if (baseN.indexOf("://") < 0) {
+        err = "bad host";
+        return false;
+    }
+    int    code = 0;
+    String r, url;
+    for (int att = 0; att < 2; att++) {
+        if (att == 1) {
+            if (!baseN.startsWith("http://")) break;
+            baseN = String("https://") + baseN.substring(7);
+        }
+        url = baseN + sufx;
+        {
+            HTTPClient http;
+            http.setConnectTimeout(15000);
+            http.setTimeout(30000);
+            if (url.startsWith("https://")) {
+                WiFiClientSecure cl;
+#if TKWM_OTA_INSECURE
+                cl.setInsecure();
+#endif
+                if (!http.begin(cl, url)) {
+                    err = "http begin failed";
+                    return false;
+                }
+            } else {
+                WiFiClient cl;
+                if (!http.begin(cl, url)) {
+                    err = "http begin failed";
+                    return false;
+                }
+            }
+            http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
+            http.addHeader(F("Content-Type"), F("application/json"));
+            code = http.POST(jsonBody.length() ? jsonBody : String(F("{}")));
+            r    = http.getString();
+            http.end();
+        }
+        if (code < 0) {
+            err = "HTTP error " + String(code);
+            return false;
+        }
+        if (code >= 200 && code < 300) {
+            respOut = r;
+            return true;
+        }
+        err = "server HTTP " + String(code);
+        if (r.length() && r.length() < 1024) err += ": " + r;
+        {
+            String d;
+            if (tkwmJsonGetString(r, "detail", d) && d.length()) err = d;
+            if (tkwmJsonGetString(r, "message", d) && d.length()) err = d;
+        }
+        if (att == 0 && baseN.startsWith("http://") && tkwmErrSuggestsHttps_(r, err)) continue;
+        return false;
+    }
+    return false;
+}
+
 static String tkwmJoinOtaDownloadUrl_(const String& effBase, const String& dlIn) {
     String dl = dlIn;
     dl.trim();
@@ -1559,6 +1629,33 @@ void TKWifiManager::handleOtaInstall() {
     _server.send(200, "application/json", F("{\"ok\":true,\"msg\":\"reboot\"}"));
     _otaRestartPending = true;
     _otaRestartAt      = millis() + 500;
+}
+
+void TKWifiManager::handleOtaTunnelCreate() {
+    const String body = tkwmWebServerPostBody_(_server);
+    if (!_otaConfLoaded) loadOtaConf_();
+    String hostI, tokenI;
+    if (body.length()) {
+        tkwmJsonGetString(body, "host", hostI);
+        tkwmJsonGetString(body, "token", tokenI);
+    }
+    String h  = tkwmNormHost_(hostI);
+    if (h.isEmpty()) h = tkwmNormHost_(_otaFileHost);
+    String tk = tokenI;
+    if (tk.isEmpty()) tk = _otaFileToken;
+    if (h.isEmpty() || tk.isEmpty()) {
+        _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"host and token required\"}");
+        return;
+    }
+    String resp, e;
+    if (!tkwmEsptoolsPostJson_(h, tk, F("/api/ui-tunnel/sessions"), F("{}"), resp, e)) {
+        String o = F("{\"ok\":false,\"msg\":\"");
+        tkwmAppJsonVal_(o, e);
+        o += F("\"}");
+        _server.send(200, "application/json", o);
+        return;
+    }
+    _server.send(200, "application/json", resp);
 }
 
 void TKWifiManager::handleNotFound() {
