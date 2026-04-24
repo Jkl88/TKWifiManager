@@ -119,9 +119,10 @@ private:
     uint32_t _otaRestartAt     = 0;
 
     // ota.conf (кэш после loadOtaConf_)
-    String  _otaFileHost, _otaFileToken;
+    String  _otaFileHost, _otaFileToken, _otaFileRemoteToken;
     int8_t  _otaFileAuto = -1; // -1: ключа auto в файле не было
     bool    _otaConfLoaded = false;
+    bool    _uploadOtaConfBlocked = false;
 
     // ===== внутреннее =====
     void  loadCreds();
@@ -162,6 +163,9 @@ private:
     void   handleOtaInstall();
     void   handleOtaSaveSettings();
     void   loadOtaConf_();
+    void   writeOtaConf_(bool autoFlag);
+    void   pollUiTunnel_();
+    void   processUiTunnelInbound_(const String& json);
     String otaConfigHost_();   // merge file
     String otaConfigToken_();
     bool   otaConfigAuto_();   // file или Preferences
