@@ -359,7 +359,7 @@ wifiMgr.setUserWsHook([](uint8_t id, WStype_t type, const uint8_t* payload, size
 | `TKWM_MAX_CRED` | `16` | Максимум сохранённых Wi-Fi профилей |
 | `TKWM_WIFI_COUNTRY` | `"EU"` | Код региона для `esp_wifi_set_country` (например `"00"` — world) |
 | `TKWM_FW_VERSION` | `"0.0.0"` | Версия прошивки для сравнения с сервером (в релизе: `build_flags = -DTKWM_FW_VERSION=\\\"1.2.3\\\"` в **вашем** проекте) |
-| `TKWM_OTA_INSECURE` | `0` | `1` — `WiFiClientSecure::setInsecure()` для OTA/ESPConnect (только тест/self-signed; не для продакшена) |
+| `TKWM_OTA_INSECURE` | `1` | `1` — `WiFiClientSecure::setInsecure()` для OTA/ESPConnect (иначе без NTP TLS к Let’s Encrypt часто даёт HTTP -1). `0` — строгая проверка сертификата + нужен точный час (NTP) в прошивке |
 | `TKWM_OTA_CONTROLLER` | (нет) | Один идентификатор токеном в `-D` (без кавычек), напр. `-D TKWM_OTA_CONTROLLER=ESP32` — такой же *controller* уйдёт в `resolve-download` вместо `ESP.getChipModel()`. В примере `extras/PlatformioBasic` то же значение можно задать как `custom_upload_controller = ...` (скрипт `pio_ota_controller.py` подставит макрос) |
 
 ```cpp

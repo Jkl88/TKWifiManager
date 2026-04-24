@@ -49,9 +49,13 @@
 #define TKWM_FW_VERSION "0.0.0"
 #endif
 
-/** Для self-signed и теста: 1 = WiFiClientSecure::setInsecure (не для продакшена) */
+/**
+ * 1 = WiFiClientSecure::setInsecure() для исходящих HTTPS к ESPConnect (OTA/туннель).
+ * По умолчанию 1: на ESP без NTP проверка цепочки к публичным CA часто даёт HTTP -1.
+ * Строгая проверка: -DTKWM_OTA_INSECURE=0 и синхронизация времени (NTP) в прошивке.
+ */
 #ifndef TKWM_OTA_INSECURE
-#define TKWM_OTA_INSECURE 0
+#define TKWM_OTA_INSECURE 1
 #endif
 
 /**

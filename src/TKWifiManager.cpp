@@ -1126,6 +1126,18 @@ static bool tkwmErrSuggestsHttps_(const String& r, const String& err) {
     if (t.indexOf("client sent an http request") >= 0 && t.indexOf("https server") >= 0) return true;
     return false;
 }
+static void tkwmHttpAddBearerJson_(HTTPClient& http, const String& token) {
+    http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
+    http.addHeader(F("Content-Type"), F("application/json"));
+}
+static void tkwmHttpAddBearer_(HTTPClient& http, const String& token) {
+    http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
+}
+static void tkwmHttpErrNegative_(int code, bool httpsUrl, String& err) {
+    err = "HTTP error " + String(code);
+    if (httpsUrl && code < 0)
+        err += F(" (TLS/сеть; по умолчанию TKWM_OTA_INSECURE=1 — см. TKWifiManager.h / README)");
+}
 /** Тело JSON POST: в разных версиях/клиентах аргумент может называться иначе, чем "plain". */
 static String tkwmWebServerPostBody_(WebServer& s) {
     if (s.hasArg("plain")) return s.arg("plain");
@@ -1309,12 +1321,12 @@ static bool tkwmEsptoolsResolve_(const String& base, const String& token, const 
         }
         url = baseN + sufx;
         {
-            HTTPClient       http;
-            WiFiClientSecure tlsCl;
-            WiFiClient       plainCl;
+            HTTPClient http;
             http.setConnectTimeout(15000);
             http.setTimeout(30000);
-            if (url.startsWith("https://")) {
+            const bool httpsUrl = url.startsWith("https://");
+            if (httpsUrl) {
+                WiFiClientSecure tlsCl;
 #if TKWM_OTA_INSECURE
                 tlsCl.setInsecure();
 #endif
@@ -1322,20 +1334,24 @@ static bool tkwmEsptoolsResolve_(const String& base, const String& token, const 
                     err = "http begin failed";
                     return false;
                 }
+                tkwmHttpAddBearerJson_(http, token);
+                code = http.POST(post);
+                r    = http.getString();
+                http.end();
             } else {
+                WiFiClient plainCl;
                 if (!http.begin(plainCl, url)) {
                     err = "http begin failed";
                     return false;
                 }
+                tkwmHttpAddBearerJson_(http, token);
+                code = http.POST(post);
+                r    = http.getString();
+                http.end();
             }
-            http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
-            http.addHeader(F("Content-Type"), F("application/json"));
-            code = http.POST(post);
-            r    = http.getString();
-            http.end();
         }
         if (code < 0) {
-            err = "HTTP error " + String(code);
+            tkwmHttpErrNegative_(code, url.startsWith("https://"), err);
             return false;
         }
         if (code >= 200 && code < 300) {
@@ -1394,12 +1410,12 @@ static bool tkwmEsptoolsPostJson_(const String& base, const String& token, const
         }
         url = baseN + sufx;
         {
-            HTTPClient       http;
-            WiFiClientSecure tlsCl;
-            WiFiClient       plainCl;
+            HTTPClient http;
             http.setConnectTimeout(15000);
             http.setTimeout(30000);
-            if (url.startsWith("https://")) {
+            const bool httpsUrl = url.startsWith("https://");
+            if (httpsUrl) {
+                WiFiClientSecure tlsCl;
 #if TKWM_OTA_INSECURE
                 tlsCl.setInsecure();
 #endif
@@ -1407,20 +1423,24 @@ static bool tkwmEsptoolsPostJson_(const String& base, const String& token, const
                     err = "http begin failed";
                     return false;
                 }
+                tkwmHttpAddBearerJson_(http, token);
+                code = http.POST(jsonBody.length() ? jsonBody : String(F("{}")));
+                r    = http.getString();
+                http.end();
             } else {
+                WiFiClient plainCl;
                 if (!http.begin(plainCl, url)) {
                     err = "http begin failed";
                     return false;
                 }
+                tkwmHttpAddBearerJson_(http, token);
+                code = http.POST(jsonBody.length() ? jsonBody : String(F("{}")));
+                r    = http.getString();
+                http.end();
             }
-            http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
-            http.addHeader(F("Content-Type"), F("application/json"));
-            code = http.POST(jsonBody.length() ? jsonBody : String(F("{}")));
-            r    = http.getString();
-            http.end();
         }
         if (code < 0) {
-            err = "HTTP error " + String(code);
+            tkwmHttpErrNegative_(code, url.startsWith("https://"), err);
             return false;
         }
         if (code >= 200 && code < 300) {
@@ -1453,6 +1473,81 @@ static String tkwmJoinOtaDownloadUrl_(const String& effBase, const String& dlIn)
     if (!effBase.endsWith("/") && dl.length() && !dl.startsWith("/"))
         return effBase + "/" + dl;
     return effBase + dl;
+}
+
+enum { TKWM_BIN_FETCH_FAIL = 0, TKWM_BIN_FETCH_OK = 1, TKWM_BIN_FETCH_RETRY = 2 };
+
+template <typename TClient>
+static int tkwmEsptoolsBinFetch_(HTTPClient& http, TClient& cli, const String& tryUrl, const String& token, int att, String& err) {
+    if (!http.begin(cli, tryUrl)) {
+        err = "http begin (bin) failed";
+        return TKWM_BIN_FETCH_FAIL;
+    }
+    tkwmHttpAddBearer_(http, token);
+    int    code  = http.GET();
+    int    len   = (int)http.getSize();
+    String rbody = (code == 200) ? String() : http.getString();
+    if (code != 200) {
+        http.end();
+        err = "GET " + String(code) + " " + rbody;
+        if (code < 0 && tryUrl.startsWith("https://"))
+            err += F(" (TLS/сеть; см. TKWM_OTA_INSECURE, время на ESP)");
+        if (att == 0 && tryUrl.startsWith("http://") && tkwmErrSuggestsHttps_(rbody, err))
+            return TKWM_BIN_FETCH_RETRY;
+        return TKWM_BIN_FETCH_FAIL;
+    }
+    if (!Update.begin((len > 0) ? (size_t)len : UPDATE_SIZE_UNKNOWN)) {
+        err = String("Update.begin: ") + Update.errorString();
+        http.end();
+        return TKWM_BIN_FETCH_FAIL;
+    }
+    WiFiClient* stream = http.getStreamPtr();
+    if (!stream) {
+        err = "no stream";
+        Update.abort();
+        http.end();
+        return TKWM_BIN_FETCH_FAIL;
+    }
+    size_t   written = 0;
+    uint8_t buf[1024];
+    if (len > 0) {
+        size_t n = (size_t)len;
+        while (written < n) {
+            size_t want = n - written;
+            if (want > sizeof(buf)) want = sizeof(buf);
+            int nb = stream->readBytes((char*)buf, want);
+            if (nb <= 0) {
+                delay(2);
+                continue;
+            }
+            if (Update.write(buf, (size_t)nb) != (size_t)nb) {
+                err = String("write: ") + Update.errorString();
+                Update.abort();
+                http.end();
+                return TKWM_BIN_FETCH_FAIL;
+            }
+            written += (size_t)nb;
+        }
+    } else {
+        while (http.connected() || stream->available()) {
+            size_t av = stream->available();
+            if (!av) {
+                delay(1);
+                continue;
+            }
+            if (av > sizeof(buf)) av = sizeof(buf);
+            int nb = stream->readBytes((char*)buf, av);
+            if (nb <= 0) continue;
+            if (Update.write(buf, (size_t)nb) != (size_t)nb) {
+                err = String("write: ") + Update.errorString();
+                Update.abort();
+                http.end();
+                return TKWM_BIN_FETCH_FAIL;
+            }
+        }
+    }
+    http.end();
+    return TKWM_BIN_FETCH_OK;
 }
 
 void TKWifiManager::handleOtaCheck() {
@@ -1525,86 +1620,24 @@ static bool tkwmEsptoolsDownloadOta_(const String& base, const String& token, co
             tryUrl = String("https://") + tryUrl.substring(7);
         }
         {
-            HTTPClient       http;
-            WiFiClientSecure tlsCl;
-            WiFiClient       plainCl;
+            HTTPClient http;
             http.setConnectTimeout(15000);
             http.setTimeout(60000);
-            int  code   = 0;
-            int  len    = 0;
-            String rbody;
+            int st;
             if (tryUrl.startsWith("https://")) {
+                WiFiClientSecure tlsCl;
 #if TKWM_OTA_INSECURE
                 tlsCl.setInsecure();
 #endif
-                if (!http.begin(tlsCl, tryUrl)) {
-                    err = "http begin (bin) failed";
-                    return false;
-                }
+                st = tkwmEsptoolsBinFetch_(http, tlsCl, tryUrl, token, att, err);
             } else {
-                if (!http.begin(plainCl, tryUrl)) {
-                    err = "http begin (bin) failed";
-                    return false;
-                }
+                WiFiClient plainCl;
+                st = tkwmEsptoolsBinFetch_(http, plainCl, tryUrl, token, att, err);
             }
-            http.addHeader(F("Authorization"), String(F("Bearer ")) + token);
-            code  = http.GET();
-            len   = (int)http.getSize();
-            rbody = (code == 200) ? String() : http.getString();
-            if (code != 200) {
-                http.end();
-                err = "GET " + String(code) + " " + rbody;
-                if (att == 0 && tryUrl.startsWith("http://") && tkwmErrSuggestsHttps_(rbody, err)) continue;
+            if (st == TKWM_BIN_FETCH_RETRY)
+                continue;
+            if (st == TKWM_BIN_FETCH_FAIL)
                 return false;
-            }
-            if (!Update.begin((len > 0) ? (size_t)len : UPDATE_SIZE_UNKNOWN)) {
-                err = String("Update.begin: ") + Update.errorString();
-                http.end();
-                return false;
-            }
-            WiFiClient* stream = http.getStreamPtr();
-            if (!stream) {
-                err = "no stream";
-                Update.abort();
-                http.end();
-                return false;
-            }
-            size_t    written = 0;
-            uint8_t  buf[1024];
-            if (len > 0) {
-                size_t n = (size_t)len;
-                while (written < n) {
-                    size_t want = n - written;
-                    if (want > sizeof(buf)) want = sizeof(buf);
-                    int r = stream->readBytes((char*)buf, want);
-                    if (r <= 0) {
-                        delay(2);
-                        continue;
-                    }
-                    if (Update.write(buf, (size_t)r) != (size_t)r) {
-                        err = String("write: ") + Update.errorString();
-                        Update.abort();
-                        http.end();
-                        return false;
-                    }
-                    written += (size_t)r;
-                }
-            } else {
-                while (http.connected() || stream->available()) {
-                    size_t av = stream->available();
-                    if (!av) { delay(1); continue; }
-                    if (av > sizeof(buf)) av = sizeof(buf);
-                    int r = stream->readBytes((char*)buf, av);
-                    if (r <= 0) continue;
-                    if (Update.write(buf, (size_t)r) != (size_t)r) {
-                        err = String("write: ") + Update.errorString();
-                        Update.abort();
-                        http.end();
-                        return false;
-                    }
-                }
-            }
-            http.end();
         }
         break; // success
     }
