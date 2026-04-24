@@ -1347,12 +1347,14 @@ static bool tkwmEsptoolsResolve_(const String& base, const String& token, const 
         }
         err = "server HTTP " + String(code);
         if (r.length() && r.length() < 512) err += ": " + r;
+        /* До подстановки detail/message: иначе err теряет текст про HTTPS и повтор не сработает. */
+        const bool httpsHint = tkwmErrSuggestsHttps_(r, err);
         {
             String d;
             if (tkwmJsonGetString(r, "detail", d) && d.length()) err = d;
             if (tkwmJsonGetString(r, "message", d) && d.length()) err = d;
         }
-        if (att == 0 && baseN.startsWith("http://") && tkwmErrSuggestsHttps_(r, err)) continue;
+        if (att == 0 && baseN.startsWith("http://") && (httpsHint || tkwmErrSuggestsHttps_(r, err))) continue;
         return false;
     }
     return false;
@@ -1414,12 +1416,13 @@ static bool tkwmEsptoolsPostJson_(const String& base, const String& token, const
         }
         err = "server HTTP " + String(code);
         if (r.length() && r.length() < 1024) err += ": " + r;
+        const bool httpsHint = tkwmErrSuggestsHttps_(r, err);
         {
             String d;
             if (tkwmJsonGetString(r, "detail", d) && d.length()) err = d;
             if (tkwmJsonGetString(r, "message", d) && d.length()) err = d;
         }
-        if (att == 0 && baseN.startsWith("http://") && tkwmErrSuggestsHttps_(r, err)) continue;
+        if (att == 0 && baseN.startsWith("http://") && (httpsHint || tkwmErrSuggestsHttps_(r, err))) continue;
         return false;
     }
     return false;
