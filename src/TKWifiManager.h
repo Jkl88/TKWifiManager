@@ -50,7 +50,7 @@
 #endif
 
 /**
- * 1 = WiFiClientSecure::setInsecure() для исходящих HTTPS к ESPConnect (OTA/туннель).
+ * 1 = WiFiClientSecure::setInsecure() для исходящих HTTPS к ESPConnect (OTA).
  * По умолчанию 1: на ESP без NTP проверка цепочки к публичным CA часто даёт HTTP -1.
  * Строгая проверка: -DTKWM_OTA_INSECURE=0 и синхронизация времени (NTP) в прошивке.
  */
@@ -123,7 +123,7 @@ private:
     uint32_t _otaRestartAt     = 0;
 
     // ota.conf (кэш после loadOtaConf_)
-    String  _otaFileHost, _otaFileToken, _otaFileRemoteToken;
+    String  _otaFileHost, _otaFileToken;
     int8_t  _otaFileAuto = -1; // -1: ключа auto в файле не было
     bool    _otaConfLoaded = false;
     bool    _uploadOtaConfBlocked = false;
@@ -165,12 +165,9 @@ private:
     void   handleOtaConfig();
     void   handleOtaCheck();
     void   handleOtaInstall();
-    void   handleOtaTunnelCreate();
     void   handleOtaSaveSettings();
     void   loadOtaConf_();
     void   writeOtaConf_(bool autoFlag);
-    void   pollUiTunnel_();
-    void   processUiTunnelInbound_(const String& json);
     String otaConfigHost_();   // merge file
     String otaConfigToken_();
     bool   otaConfigAuto_();   // file или Preferences

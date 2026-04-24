@@ -5,9 +5,6 @@
 #include <WiFiClientSecure.h>
 #include <cstdio>
 #include <cstring>
-#if defined(TKWM_ENABLE_UI_TUNNEL)
-#include <WebSocketsClient.h>
-#endif
 
 // Токен порта встроен в JS как число, чтобы встроенные HTML совпадали с макросом TKWM_WS_PORT
 #ifndef TKWM_XSTR
@@ -500,7 +497,6 @@ void TKWifiManager::loop() {
     if (_captiveMode) _dns.processNextRequest();
     _server.handleClient();
     _ws.loop();
-    pollUiTunnel_();
     udpTick();
 
     // если в STA пропала сеть — вернёмся в AP
@@ -636,7 +632,6 @@ void TKWifiManager::setupRoutes() {
     _server.on("/api/ota/config", HTTP_GET, [this] { handleOtaConfig(); });
     _server.on("/api/ota/check", HTTP_POST, [this] { handleOtaCheck(); });
     _server.on("/api/ota/install", HTTP_POST, [this] { handleOtaInstall(); });
-    _server.on("/api/ota/tunnel/create", HTTP_POST, [this] { handleOtaTunnelCreate(); });
     _server.on("/api/ota/save", HTTP_POST, [this] { handleOtaSaveSettings(); });
 
     // 404
@@ -1166,7 +1161,6 @@ void TKWifiManager::loadOtaConf_() {
     _otaConfLoaded = true;
     _otaFileHost         = "";
     _otaFileToken        = "";
-    _otaFileRemoteToken  = "";
     _otaFileAuto   = -1;
     if (!_fsOk || !TKWM_FS.exists("/ota.conf")) return;
     File f = TKWM_FS.open("/ota.conf", "r");
@@ -1185,8 +1179,6 @@ void TKWifiManager::loadOtaConf_() {
             _otaFileHost = v;
         } else if (k == "token") {
             _otaFileToken = v;
-        } else if (k == "remote_token") {
-            _otaFileRemoteToken = v;
         } else if (k == "auto") {
             v.toLowerCase();
             if (v == "1" || v == "true" || v == "yes" || v == "on")
@@ -1225,13 +1217,11 @@ void TKWifiManager::handleOtaConfig() {
     const String& tk = _otaFileToken;
     const bool    au = otaConfigAuto_();
     String        out;
-    out.reserve(160 + h.length() + tk.length() + _otaFileRemoteToken.length());
+    out.reserve(120 + h.length() + tk.length());
     out = F("{\"ok\":true,\"host\":\"");
     tkwmAppJsonVal_(out, h);
     out += F("\",\"token\":\"");
     tkwmAppJsonVal_(out, tk);
-    out += F("\",\"remote_token\":\"");
-    tkwmAppJsonVal_(out, _otaFileRemoteToken);
     out += F("\",\"auto\":");
     out += au ? "true" : "false";
     out += F(",\"hasCreds\":");
@@ -1258,13 +1248,11 @@ void TKWifiManager::handleOtaSaveSettings() {
                 au = true;
         }
     }
-    String hostIn, tokenIn, remoteIn;
+    String hostIn, tokenIn;
     if (tkwmJsonGetString(b, "host", hostIn))
         _otaFileHost = hostIn;
     if (tkwmJsonGetString(b, "token", tokenIn))
         _otaFileToken = tokenIn;
-    if (tkwmJsonGetString(b, "remote_token", remoteIn))
-        _otaFileRemoteToken = remoteIn;
 
     _prefs.begin("tkw_ota", false);
     _prefs.putBool("auto", au);
@@ -1282,13 +1270,11 @@ void TKWifiManager::writeOtaConf_(bool autoFlag) {
         Serial.println(F("[TKWM] ota.conf write failed"));
         return;
     }
-    f.println(F("# TKWifiManager — ESPConnect OTA / UI tunnel"));
+    f.println(F("# TKWifiManager — ESPConnect OTA"));
     f.print(F("host="));
     f.println(_otaFileHost);
     f.print(F("token="));
     f.println(_otaFileToken);
-    f.print(F("remote_token="));
-    f.println(_otaFileRemoteToken);
     f.print(F("auto="));
     f.println(autoFlag ? "1" : "0");
     f.close();
@@ -1680,33 +1666,6 @@ void TKWifiManager::handleOtaInstall() {
     _otaRestartAt      = millis() + 500;
 }
 
-void TKWifiManager::handleOtaTunnelCreate() {
-    const String body = tkwmWebServerPostBody_(_server);
-    if (!_otaConfLoaded) loadOtaConf_();
-    String hostI, tokenI;
-    if (body.length()) {
-        tkwmJsonGetString(body, "host", hostI);
-        tkwmJsonGetString(body, "token", tokenI);
-    }
-    String h  = tkwmNormHost_(hostI);
-    if (h.isEmpty()) h = tkwmNormHost_(_otaFileHost);
-    String tk = tokenI;
-    if (tk.isEmpty()) tk = _otaFileToken;
-    if (h.isEmpty() || tk.isEmpty()) {
-        _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"host and token required\"}");
-        return;
-    }
-    String resp, e;
-    if (!tkwmEsptoolsPostJson_(h, tk, F("/api/ui-tunnel/sessions"), F("{}"), resp, e)) {
-        String o = F("{\"ok\":false,\"msg\":\"");
-        tkwmAppJsonVal_(o, e);
-        o += F("\"}");
-        _server.send(200, "application/json", o);
-        return;
-    }
-    _server.send(200, "application/json", resp);
-}
-
 void TKWifiManager::handleNotFound() {
     String uri = _server.uri();
     if (_fsOk && streamIfExists(uri)) return;
@@ -1874,125 +1833,4 @@ void TKWifiManager::sendUpload404(const String& missingPath) {
     html += F("' enctype='multipart/form-data'><input type='file' name='file' required> <button>Загрузить</button></form>"
         "<p style='opacity:.8;margin-top:12px'>Подсказка: для главной загрузите <code>/index.html</code>.</p></div></body>");
     _server.send(404, "text/html; charset=utf-8", html);
-}
-
-#if defined(TKWM_ENABLE_UI_TUNNEL)
-namespace {
-WebSocketsClient gTkwmUiTunnelWs;
-TKWifiManager*   gTkwmUiTunnelMgr   = nullptr;
-uint32_t         gTkwmUiTunnelNextMs = 0;
-
-static void tkwmUiTunnelWsCb(WStype_t type, uint8_t* payload, size_t length) {
-    if (type != WStype_TEXT || !gTkwmUiTunnelMgr || !payload || !length)
-        return;
-    String s;
-    s.reserve(length + 1);
-    for (size_t i = 0; i < length; ++i) s += (char)payload[i];
-    gTkwmUiTunnelMgr->processUiTunnelInbound_(s);
-}
-} // namespace
-#endif
-
-void TKWifiManager::processUiTunnelInbound_(const String& json) {
-#if !defined(TKWM_ENABLE_UI_TUNNEL)
-    (void)json;
-#else
-    if (json.indexOf(F("\"op\":\"proxy\"")) < 0)
-        return;
-    int rid = 0;
-    if (!tkwmJsonGetInt(json, "id", rid))
-        rid = 0;
-    String method = "GET", path = "/";
-    tkwmJsonGetString(json, "method", method);
-    tkwmJsonGetString(json, "path", path);
-    if (!path.length() || path[0] != '/')
-        path = "/" + path;
-    method.toUpperCase();
-    const String url = String(F("http://127.0.0.1:")) + String((unsigned)_httpPort) + path;
-    int         code = 0;
-    String      body;
-    {
-        HTTPClient http;
-        http.setConnectTimeout(3000);
-        http.setTimeout(15000);
-        WiFiClient cl;
-        if (http.begin(cl, url)) {
-            (void)method;
-            code = http.GET();
-            body = http.getString();
-        }
-        http.end();
-    }
-    const size_t maxBody = 20 * 1024;
-    if (body.length() > maxBody)
-        body = body.substring(0, maxBody);
-    String out = F("{\"op\":\"proxy_res\",\"id\":");
-    out += String(rid);
-    out += F(",\"status\":");
-    out += String(code);
-    out += F(",\"body\":\"");
-    tkwmAppJsonVal_(out, body);
-    out += F("\"}");
-    gTkwmUiTunnelWs.sendTXT(out);
-#endif
-}
-
-void TKWifiManager::pollUiTunnel_() {
-#if !defined(TKWM_ENABLE_UI_TUNNEL)
-    return;
-#else
-    gTkwmUiTunnelMgr = this;
-    if (!_otaConfLoaded)
-        loadOtaConf_();
-    if (_captiveMode || WiFi.status() != WL_CONNECTED) {
-        gTkwmUiTunnelWs.disconnect();
-        return;
-    }
-    const String tok = _otaFileRemoteToken;
-    const String hostRaw = tkwmNormHost_(_otaFileHost);
-    if (!tok.length() || hostRaw.indexOf("://") < 0) {
-        gTkwmUiTunnelWs.disconnect();
-        return;
-    }
-    gTkwmUiTunnelWs.loop();
-    if (gTkwmUiTunnelWs.isConnected())
-        return;
-    if ((int32_t)(millis() - gTkwmUiTunnelNextMs) < 0)
-        return;
-    gTkwmUiTunnelNextMs = millis() + 4000;
-
-    bool   ssl = hostRaw.startsWith("https://");
-    String h     = hostRaw;
-    if (ssl)
-        h = h.substring(8);
-    else if (hostRaw.startsWith("http://"))
-        h = h.substring(7);
-    else
-        return;
-    {
-        int slash = h.indexOf('/');
-        if (slash >= 0)
-            h = h.substring(0, slash);
-    }
-    uint16_t port = ssl ? 443 : 80;
-    {
-        const int colon = h.indexOf(':');
-        if (colon >= 0) {
-            const int p = h.substring(colon + 1).toInt();
-            if (p > 0 && p < 65535)
-                port = (uint16_t)p;
-            h = h.substring(0, colon);
-        }
-    }
-    if (!h.length())
-        return;
-
-    const String path = String(F("/api/ui-tunnel/ws/device?t=")) + tok;
-    gTkwmUiTunnelWs.onEvent(tkwmUiTunnelWsCb);
-    if (ssl) {
-        gTkwmUiTunnelWs.beginSSL(h.c_str(), port, path.c_str());
-    } else {
-        gTkwmUiTunnelWs.begin(h.c_str(), port, path.c_str());
-    }
-#endif
 }

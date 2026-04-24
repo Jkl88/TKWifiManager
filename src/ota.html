@@ -81,8 +81,6 @@
       <input id="token" class="wide" type="password" style="flex:1;min-width:0" placeholder="JWT" autocomplete="off">
       <button type="button" id="tokb">Показать</button>
     </div>
-    <label for="remotetok">Токен удалённого доступа к веб-интерфейсу (ESPTools UI tunnel)</label>
-    <input id="remotetok" class="wide" type="password" placeholder="опционально" autocomplete="off">
     <label class="row" style="user-select:none;cursor:pointer;margin-top:10px">
       <input id="autocb" type="checkbox"> <span>Авто проверка обновлений при открытии</span>
     </label>
@@ -90,10 +88,6 @@
       <button type="button" id="bsave">Сохранить в ota.conf</button>
       <button type="button" id="bcheck">Проверить обновления</button>
     </div>
-    <div class="row" style="margin-top:12px">
-      <button type="button" id="btunnel">Создать сессию туннеля (на сервере)</button>
-    </div>
-    <div id="tunnelout" class="mut" style="margin-top:8px;word-break:break-all"></div>
     <div id="esplog" class="mut" style="margin-top:10px"></div>
   </div>
 
@@ -129,8 +123,8 @@
 <script>
 const SKIP_KEY = "tkwm_ota_skip";
 const $ = s => document.querySelector(s);
-const host = $("#host"), token = $("#token"), remotetok = $("#remotetok"), bcheck = $("#bcheck"), bsave = $("#bsave"), btunnel = $("#btunnel");
-const esplog = $("#esplog"), tunnelout = $("#tunnelout"), curv = $("#curv"), ctrl = $("#ctrl");
+const host = $("#host"), token = $("#token"), bcheck = $("#bcheck"), bsave = $("#bsave");
+const esplog = $("#esplog"), curv = $("#curv"), ctrl = $("#ctrl");
 const autocb = $("#autocb"), tokb = $("#tokb");
 const mb = $("#mb"), mbd = $("#mbd"), bskip = $("#bskip"), bupd = $("#bupd");
 let lastRemote = "";
@@ -161,7 +155,6 @@ async function persistOtaSettings() {
   await postJson("/api/ota/save", {
     host: host.value.trim(),
     token: token.value.trim(),
-    remote_token: remotetok ? remotetok.value.trim() : "",
     auto: !!autocb.checked
   });
 }
@@ -212,27 +205,6 @@ async function doInstall() {
 }
 
 bcheck.addEventListener("click", doCheck);
-btunnel.addEventListener("click", async function () {
-  if (!tunnelout) return;
-  tunnelout.textContent = "Запрос сессии…";
-  tunnelout.className = "mut";
-  if (!credsOk()) { tunnelout.innerHTML = "<span class='err'>Укажите хост и API токен (JWT)</span>"; return; }
-  const j = await postJson("/api/ota/tunnel/create", { host: host.value.trim(), token: token.value.trim() });
-  if (j && j.ok === false) {
-    const m = (j.msg || j.detail || "ошибка");
-    tunnelout.innerHTML = "<span class='err'>" + String(m).replace(/</g, "&lt;") + "</span>";
-    return;
-  }
-  if (j && j.viewer_url) {
-    tunnelout.innerHTML = "<span class='ok'>Ок.</span> Ссылка: <a href='" + String(j.viewer_url).replace(/'/g, "%27") + "' target='_blank' rel='noopener'>" + String(j.viewer_url).replace(/</g, "&lt;") + "</a>";
-    if (j.device_token && remotetok) {
-      remotetok.value = String(j.device_token);
-      try { await persistOtaSettings(); } catch (_) {}
-    }
-    return;
-  }
-  tunnelout.innerHTML = "<span class='err'>Нет viewer_url в ответе</span>";
-});
 bsave.addEventListener("click", async function () {
   esplog.textContent = "Сохранение...";
   try {
@@ -296,7 +268,6 @@ form.addEventListener("submit", function (ev) {
     if (cfg && cfg.ok) {
       if (typeof cfg.host === "string") host.value = cfg.host;
       if (typeof cfg.token === "string") token.value = cfg.token;
-      if (remotetok && typeof cfg.remote_token === "string") remotetok.value = cfg.remote_token;
       autocb.checked = !!cfg.auto;
     }
     if (inf && inf.ok) {
