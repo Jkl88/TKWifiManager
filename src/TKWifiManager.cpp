@@ -1082,6 +1082,19 @@ void TKWifiManager::handleOtaFinish() {
 static String tkwmNormHost_(String h) {
     h.trim();
     while (h.length() > 0 && h.endsWith("/")) h.remove(h.length() - 1);
+    /* startsWith("https://") в HTTPClient чувствителен к регистру — нормализуем схему. */
+    if ((int)h.length() >= 8) {
+        String head = h.substring(0, 8);
+        head.toLowerCase();
+        if (head == "https://")
+            h = String("https://") + h.substring(8);
+    }
+    if ((int)h.length() >= 7 && !h.startsWith("https://")) {
+        String head = h.substring(0, 7);
+        head.toLowerCase();
+        if (head == "http://")
+            h = String("http://") + h.substring(7);
+    }
     return h;
 }
 static void tkwmAppJsonVal_(String& o, const String& s) {
@@ -1296,21 +1309,21 @@ static bool tkwmEsptoolsResolve_(const String& base, const String& token, const 
         }
         url = baseN + sufx;
         {
-            HTTPClient http;
+            HTTPClient       http;
+            WiFiClientSecure tlsCl;
+            WiFiClient       plainCl;
             http.setConnectTimeout(15000);
             http.setTimeout(30000);
             if (url.startsWith("https://")) {
-                WiFiClientSecure cl;
 #if TKWM_OTA_INSECURE
-                cl.setInsecure();
+                tlsCl.setInsecure();
 #endif
-                if (!http.begin(cl, url)) {
+                if (!http.begin(tlsCl, url)) {
                     err = "http begin failed";
                     return false;
                 }
             } else {
-                WiFiClient cl;
-                if (!http.begin(cl, url)) {
+                if (!http.begin(plainCl, url)) {
                     err = "http begin failed";
                     return false;
                 }
@@ -1381,21 +1394,21 @@ static bool tkwmEsptoolsPostJson_(const String& base, const String& token, const
         }
         url = baseN + sufx;
         {
-            HTTPClient http;
+            HTTPClient       http;
+            WiFiClientSecure tlsCl;
+            WiFiClient       plainCl;
             http.setConnectTimeout(15000);
             http.setTimeout(30000);
             if (url.startsWith("https://")) {
-                WiFiClientSecure cl;
 #if TKWM_OTA_INSECURE
-                cl.setInsecure();
+                tlsCl.setInsecure();
 #endif
-                if (!http.begin(cl, url)) {
+                if (!http.begin(tlsCl, url)) {
                     err = "http begin failed";
                     return false;
                 }
             } else {
-                WiFiClient cl;
-                if (!http.begin(cl, url)) {
+                if (!http.begin(plainCl, url)) {
                     err = "http begin failed";
                     return false;
                 }
@@ -1512,24 +1525,24 @@ static bool tkwmEsptoolsDownloadOta_(const String& base, const String& token, co
             tryUrl = String("https://") + tryUrl.substring(7);
         }
         {
-            HTTPClient      http;
+            HTTPClient       http;
+            WiFiClientSecure tlsCl;
+            WiFiClient       plainCl;
             http.setConnectTimeout(15000);
             http.setTimeout(60000);
             int  code   = 0;
             int  len    = 0;
             String rbody;
             if (tryUrl.startsWith("https://")) {
-                WiFiClientSecure cl;
 #if TKWM_OTA_INSECURE
-                cl.setInsecure();
+                tlsCl.setInsecure();
 #endif
-                if (!http.begin(cl, tryUrl)) {
+                if (!http.begin(tlsCl, tryUrl)) {
                     err = "http begin (bin) failed";
                     return false;
                 }
             } else {
-                WiFiClient cl;
-                if (!http.begin(cl, tryUrl)) {
+                if (!http.begin(plainCl, tryUrl)) {
                     err = "http begin (bin) failed";
                     return false;
                 }
