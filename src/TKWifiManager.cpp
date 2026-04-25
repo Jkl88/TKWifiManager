@@ -1413,7 +1413,7 @@ static bool tkwmEsptoolsResolve_(const String& base, const String& token, const 
     }
     String post = F("{\"controller\":\"");
     tkwmAppJsonVal_(post, controller);
-    post += F("\",\"firmware_type\":\"firmware\"}");
+    post += F("\",\"firmware_type\":\"firmware\",\"firmware_version\":\"latest\"}");
     const String sufx = F("/api/firmware/resolve-download");
     String         baseN = tkwmNormHost_(base);
     if (baseN.indexOf("://") < 0) {
