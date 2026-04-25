@@ -97,7 +97,9 @@ public:
     // formatFSIfNeeded=true — смонтировать FS c форматированием при первом фейле
     // apSsidPrefix — префикс SSID точки, суффикс MAC добавится автоматически
     // Возвращает true, если HTTP/WS подняты; смонтирована ли ФС — см. isFilesystemOk()
-    bool begin(const String& apSsidPrefix = "TK-Setup", bool formatFSIfNeeded = true);
+    // taskCore: -1 = использовать TKWM_TASK_CORE, иначе 0/1 для dual-core.
+    // На unicore параметр игнорируется (задача запускается без pinning).
+    bool begin(const String& apSsidPrefix = "TK-Setup", bool formatFSIfNeeded = true, int8_t taskCore = -1);
     void loop();
 
     bool isFilesystemOk() const { return _fsOk; }
@@ -136,6 +138,7 @@ private:
     String _apSsidPrefix;
     volatile bool _bgTaskRunning = false;
     TaskHandle_t _bgTaskHandle = nullptr;
+    int8_t _bgTaskCore = TKWM_TASK_CORE;
     uint32_t _lastReconnectAttemptMs = 0;
     uint32_t _staLostSinceMs = 0;
     // upload (состояние multipart)

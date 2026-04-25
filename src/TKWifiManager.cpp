@@ -451,7 +451,7 @@ TKWifiManager::TKWifiManager(uint16_t httpPort)
     : _httpPort(httpPort), _server(httpPort), _ws(TKWM_WS_PORT) {
 }
 
-bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
+bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded, int8_t taskCore) {
     _apSsidPrefix = apSsidPrefix;
 #if TKWM_USE_LITTLEFS
     Serial.println(F("[TKWM] FS = LittleFS"));
@@ -490,9 +490,31 @@ bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
     _udp.begin(TKWM_DISCOVERY_PORT);
 
 #if TKWM_USE_BACKGROUND_TASK
-#if !CONFIG_FREERTOS_UNICORE
     if (!_bgTaskHandle) {
         _bgTaskRunning = true;
+#if CONFIG_FREERTOS_UNICORE
+        BaseType_t ok = xTaskCreate(
+            TKWifiManager::bgTaskEntry,
+            "tkwm_task",
+            8192,
+            this,
+            1,
+            &_bgTaskHandle
+        );
+        // На unicore id ядра всегда 0; параметр taskCore не используется.
+        _bgTaskCore = 0;
+        if (ok != pdPASS) {
+            _bgTaskHandle = nullptr;
+            _bgTaskRunning = false;
+            Serial.println(F("[TKWM] background task start failed, fallback to manual loop()"));
+        } else {
+            Serial.println(F("[TKWM] background task started on unicore (core 0)"));
+        }
+#else
+        int8_t selectedCore = (taskCore >= 0) ? taskCore : (int8_t)TKWM_TASK_CORE;
+        if (selectedCore < 0) selectedCore = 0;
+        if (selectedCore > 1) selectedCore = 1;
+        _bgTaskCore = selectedCore;
         BaseType_t ok = xTaskCreatePinnedToCore(
             TKWifiManager::bgTaskEntry,
             "tkwm_task",
@@ -500,19 +522,17 @@ bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
             this,
             1,
             &_bgTaskHandle,
-            TKWM_TASK_CORE
+            _bgTaskCore
         );
         if (ok != pdPASS) {
             _bgTaskHandle = nullptr;
             _bgTaskRunning = false;
             Serial.println(F("[TKWM] background task start failed, fallback to manual loop()"));
         } else {
-            Serial.printf("[TKWM] background task started on core %d\n", (int)TKWM_TASK_CORE);
+            Serial.printf("[TKWM] background task started on core %d\n", (int)_bgTaskCore);
         }
-    }
-#else
-    Serial.println(F("[TKWM] unicore build: background task pinning disabled"));
 #endif
+    }
 #endif
     return true; // HTTP/WS готовы; состояние ФС — isFilesystemOk()
 }
