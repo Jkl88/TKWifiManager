@@ -9,6 +9,7 @@
 
 static const char* TKWM_TZ_CACHE_PATH = "/timezones.json";
 static const uint32_t TKWM_AUTO_TIME_SYNC_INTERVAL_MS = 24UL * 60UL * 60UL * 1000UL;
+static const uint32_t TKWM_SYNC_TIME_MANUAL_TIMEOUT_MS = 5000UL;
 static const char* TKWM_LOCAL_TZ_FALLBACK_JSON =
     "[\"UTC\",\"Europe/Moscow\",\"Europe/Kaliningrad\",\"Europe/Samara\",\"Europe/Volgograd\","
     "\"Europe/London\",\"Europe/Berlin\",\"Europe/Paris\",\"Europe/Madrid\",\"Europe/Rome\","
@@ -29,6 +30,62 @@ static const char* TKWM_LOCAL_TZ_FALLBACK_JSON =
     "\"America/Caracas\",\"America/Sao_Paulo\",\"America/Montevideo\",\"America/Buenos_Aires\","
     "\"America/Godthab\",\"Africa/Cairo\",\"Africa/Johannesburg\",\"Africa/Nairobi\","
     "\"Africa/Lagos\",\"Africa/Casablanca\",\"Africa/Algiers\"]";
+
+static bool tkwmLookupFixedTzOffsetMin_(String tz, int16_t& outMin) {
+    tz.trim();
+    if (!tz.length()) tz = "UTC";
+    if (tz == "UTC" || tz == "Etc/UTC" || tz == "GMT") { outMin = 0; return true; }
+    if (tz == "Europe/Moscow") { outMin = 180; return true; }
+    if (tz == "Europe/Kaliningrad") { outMin = 120; return true; }
+    if (tz == "Europe/Samara") { outMin = 240; return true; }
+    if (tz == "Europe/Volgograd") { outMin = 180; return true; }
+    if (tz == "Europe/London") { outMin = 0; return true; }
+    if (tz == "Europe/Berlin" || tz == "Europe/Paris" || tz == "Europe/Madrid" || tz == "Europe/Rome" || tz == "Europe/Amsterdam" || tz == "Europe/Prague" || tz == "Europe/Warsaw") { outMin = 60; return true; }
+    if (tz == "Europe/Kyiv" || tz == "Europe/Istanbul") { outMin = 180; return true; }
+    if (tz == "Asia/Yekaterinburg") { outMin = 300; return true; }
+    if (tz == "Asia/Omsk") { outMin = 360; return true; }
+    if (tz == "Asia/Novosibirsk" || tz == "Asia/Krasnoyarsk" || tz == "Asia/Bangkok" || tz == "Asia/Jakarta" || tz == "Asia/Ho_Chi_Minh") { outMin = 420; return true; }
+    if (tz == "Asia/Irkutsk" || tz == "Asia/Singapore" || tz == "Asia/Shanghai" || tz == "Asia/Hong_Kong" || tz == "Asia/Manila" || tz == "Asia/Taipei" || tz == "Asia/Kuala_Lumpur") { outMin = 480; return true; }
+    if (tz == "Asia/Yakutsk" || tz == "Asia/Tokyo" || tz == "Asia/Seoul") { outMin = 540; return true; }
+    if (tz == "Asia/Vladivostok") { outMin = 600; return true; }
+    if (tz == "Asia/Magadan") { outMin = 660; return true; }
+    if (tz == "Asia/Kamchatka") { outMin = 720; return true; }
+    if (tz == "Asia/Sakhalin") { outMin = 660; return true; }
+    if (tz == "Asia/Almaty" || tz == "Asia/Bishkek" || tz == "Asia/Dushanbe" || tz == "Asia/Tashkent" || tz == "Asia/Karachi") { outMin = 300; return true; }
+    if (tz == "Asia/Ashgabat" || tz == "Asia/Dubai" || tz == "Asia/Baku") { outMin = 240; return true; }
+    if (tz == "Asia/Tbilisi" || tz == "Asia/Yerevan" || tz == "Asia/Tehran") { outMin = 210; return true; }
+    if (tz == "Asia/Kolkata") { outMin = 330; return true; }
+    if (tz == "Asia/Kathmandu") { outMin = 345; return true; }
+    if (tz == "Asia/Dhaka") { outMin = 360; return true; }
+    if (tz == "Australia/Perth") { outMin = 480; return true; }
+    if (tz == "Australia/Adelaide" || tz == "Australia/Darwin") { outMin = 570; return true; }
+    if (tz == "Australia/Brisbane" || tz == "Australia/Sydney" || tz == "Australia/Melbourne" || tz == "Pacific/Guam") { outMin = 600; return true; }
+    if (tz == "Pacific/Auckland" || tz == "Pacific/Fiji") { outMin = 720; return true; }
+    if (tz == "Pacific/Honolulu") { outMin = -600; return true; }
+    if (tz == "America/Anchorage") { outMin = -540; return true; }
+    if (tz == "America/Los_Angeles") { outMin = -480; return true; }
+    if (tz == "America/Denver" || tz == "America/Phoenix") { outMin = -420; return true; }
+    if (tz == "America/Chicago" || tz == "America/Mexico_City") { outMin = -360; return true; }
+    if (tz == "America/New_York" || tz == "America/Toronto" || tz == "America/Bogota" || tz == "America/Lima") { outMin = -300; return true; }
+    if (tz == "America/Halifax" || tz == "America/La_Paz" || tz == "America/Caracas" || tz == "America/Santiago") { outMin = -240; return true; }
+    if (tz == "America/St_Johns") { outMin = -210; return true; }
+    if (tz == "America/Sao_Paulo" || tz == "America/Montevideo" || tz == "America/Buenos_Aires" || tz == "America/Godthab") { outMin = -180; return true; }
+    if (tz == "Africa/Cairo") { outMin = 120; return true; }
+    if (tz == "Africa/Johannesburg") { outMin = 120; return true; }
+    if (tz == "Africa/Nairobi") { outMin = 180; return true; }
+    if (tz == "Africa/Lagos" || tz == "Africa/Casablanca" || tz == "Africa/Algiers") { outMin = 60; return true; }
+
+    // Etc/GMT+3 means UTC-3 in IANA notation.
+    if (tz.startsWith("Etc/GMT") && tz.length() > 7) {
+        String tail = tz.substring(7);
+        int sign = 1;
+        if (tail.startsWith("+")) { sign = -1; tail.remove(0, 1); }
+        else if (tail.startsWith("-")) { sign = 1; tail.remove(0, 1); }
+        int h = tail.toInt();
+        if (h >= 0 && h <= 14) { outMin = (int16_t)(sign * h * 60); return true; }
+    }
+    return false;
+}
 
 // Токен порта встроен в JS как число, чтобы встроенные HTML совпадали с макросом TKWM_WS_PORT
 #ifndef TKWM_XSTR
@@ -1485,56 +1542,12 @@ bool TKWifiManager::ensureTimezoneListCache_() {
 
 String TKWifiManager::readTimezoneListJson_() {
     if (!_fsOk) return "[]";
-    if (!ensureTimezoneListCache_() && !TKWM_FS.exists(TKWM_TZ_CACHE_PATH)) return "[]";
-    File f = TKWM_FS.open(TKWM_TZ_CACHE_PATH, "r");
-    if (!f) return String(TKWM_LOCAL_TZ_FALLBACK_JSON);
-    if (f.size() > 65536) {
-        f.close();
-        return String(TKWM_LOCAL_TZ_FALLBACK_JSON);
-    }
-    String s = f.readString();
-    f.close();
-    s.trim();
-    if (s.startsWith("[")) return s;
-    // Поддерживаем только готовый JSON-массив строк.
+    // Только локальный хардкод-список таймзон.
     return String(TKWM_LOCAL_TZ_FALLBACK_JSON);
 }
 
 bool TKWifiManager::fetchTimezoneOffsetMin_(const String& timezone, int16_t& outMin) {
-    if (WiFi.status() != WL_CONNECTED) return false;
-    String tz = timezone;
-    tz.trim();
-    if (!tz.length()) tz = "UTC";
-    String body = String("{\"timeZone\":\"");
-    tkwmAppJsonVal_(body, tz);
-    body += "\"}";
-
-    const char* url = "https://timeapi.io/api/Time/current/zone";
-    HTTPClient http;
-    WiFiClientSecure tlsCl;
-#if TKWM_OTA_INSECURE
-    tlsCl.setInsecure();
-#endif
-    if (!http.begin(tlsCl, url)) return false;
-    http.setConnectTimeout(10000);
-    http.setTimeout(15000);
-    http.addHeader("Content-Type", "application/json");
-    const int code = http.POST(body);
-    const String resp = http.getString();
-    http.end();
-    if (code < 200 || code >= 300) return false;
-
-    int sec = 0;
-    if (tkwmJsonGetInt(resp, "currentUtcOffset", sec) || tkwmJsonGetInt(resp, "currentUtcOffsetSeconds", sec)) {
-        outMin = (int16_t)(sec / 60);
-        return true;
-    }
-    String off;
-    if (tkwmJsonGetString(resp, "currentUtcOffset", off) || tkwmJsonGetString(resp, "currentUtcOffsetText", off)) {
-        outMin = tkwmParseTzOffsetMin_(off);
-        return true;
-    }
-    return false;
+    return tkwmLookupFixedTzOffsetMin_(timezone, outMin);
 }
 
 void TKWifiManager::handleOtaInfo() {
@@ -1670,7 +1683,7 @@ void TKWifiManager::handleOtaSyncTime() {
     if (body.length()) tkwmJsonGetString(body, "timezone", timezoneIn);
     if (timezoneIn.length()) _otaFileTimezone = timezoneIn;
     const String ntp = otaConfigNtp_();
-    const bool ok = syncTimeWithNtp_(ntp, 12000);
+    const bool ok = syncTimeWithNtp_(ntp, TKWM_SYNC_TIME_MANUAL_TIMEOUT_MS);
     int16_t offMin = otaConfigTzOffsetMin_();
     (void)fetchTimezoneOffsetMin_(otaConfigTimezone_(), offMin);
     _otaFileTzOffsetMin = offMin;
