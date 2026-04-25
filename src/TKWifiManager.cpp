@@ -1282,19 +1282,16 @@ static String tkwmWebServerPostBody_(WebServer& s) {
 /** Символ токеном, как в C (напр. ESP32), чтобы совпадало с ESPConnect. */
 static String tkwmOtaController_() {
 #ifdef TKWM_OTA_CONTROLLER
-#define TKW_OTA_CSTR1(x) #x
-#define TKW_OTA_CSTR2(x) TKW_OTA_CSTR1(x)
-    String c = String(TKW_OTA_CSTR2(TKWM_OTA_CONTROLLER));
-#undef TKW_OTA_CSTR2
-#undef TKW_OTA_CSTR1
+    // Важно: одноуровневая stringize, чтобы токен ESP32 не разворачивался в макрос `1`.
+#define TKW_OTA_CSTR(x) #x
+    String c = String(TKW_OTA_CSTR(TKWM_OTA_CONTROLLER));
+#undef TKW_OTA_CSTR
     return c;
 #elif defined(DTKWM_OTA_CONTROLLER)
-#define TKW_OTA_CSTR1(x) #x
-#define TKW_OTA_CSTR2(x) TKW_OTA_CSTR1(x)
+#define TKW_OTA_CSTR(x) #x
     // Backward compatibility for older pre-scripts that defined DTKWM_OTA_CONTROLLER.
-    String c = String(TKW_OTA_CSTR2(DTKWM_OTA_CONTROLLER));
-#undef TKW_OTA_CSTR2
-#undef TKW_OTA_CSTR1
+    String c = String(TKW_OTA_CSTR(DTKWM_OTA_CONTROLLER));
+#undef TKW_OTA_CSTR
     return c;
 #else
     return String(ESP.getChipModel());
