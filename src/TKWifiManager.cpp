@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <time.h>
 #include <cstdio>
 #include <cstring>
 
@@ -755,6 +756,7 @@ void TKWifiManager::setupRoutes() {
     _server.on("/api/ota/check", HTTP_POST, [this] { handleOtaCheck(); });
     _server.on("/api/ota/install", HTTP_POST, [this] { handleOtaInstall(); });
     _server.on("/api/ota/save", HTTP_POST, [this] { handleOtaSaveSettings(); });
+    _server.on("/api/ota/sync-time", HTTP_POST, [this] { handleOtaSyncTime(); });
 
     // 404
     _server.onNotFound([this] { handleNotFound(); });
@@ -1214,6 +1216,18 @@ static String tkwmNormHost_(String h) {
     }
     return h;
 }
+
+static String tkwmIsoTimeNowUtc_() {
+    time_t now = time(nullptr);
+    if (now < 1700000000) return String();
+    struct tm tmv;
+    gmtime_r(&now, &tmv);
+    char buf[32];
+    snprintf(
+        buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d UTC", tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+        tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
+    return String(buf);
+}
 static void tkwmAppJsonVal_(String& o, const String& s) {
     for (uint32_t i = 0; i < s.length(); ++i) {
         unsigned char c = (unsigned char)s[i];
@@ -1283,6 +1297,7 @@ void TKWifiManager::loadOtaConf_() {
     _otaConfLoaded = true;
     _otaFileHost         = "";
     _otaFileToken        = "";
+    _otaFileNtp          = "";
     _otaFileAuto   = -1;
     if (!_fsOk || !TKWM_FS.exists("/ota.conf")) return;
     File f = TKWM_FS.open("/ota.conf", "r");
@@ -1301,6 +1316,8 @@ void TKWifiManager::loadOtaConf_() {
             _otaFileHost = v;
         } else if (k == "token") {
             _otaFileToken = v;
+        } else if (k == "ntp") {
+            _otaFileNtp = v;
         } else if (k == "auto") {
             v.toLowerCase();
             if (v == "1" || v == "true" || v == "yes" || v == "on")
@@ -1314,12 +1331,32 @@ void TKWifiManager::loadOtaConf_() {
 
 String TKWifiManager::otaConfigHost_() { return tkwmNormHost_(_otaFileHost); }
 String TKWifiManager::otaConfigToken_() { return _otaFileToken; }
+String TKWifiManager::otaConfigNtp_() {
+    String ntp = _otaFileNtp;
+    ntp.trim();
+    if (!ntp.length()) ntp = "pool.ntp.org";
+    return ntp;
+}
 bool   TKWifiManager::otaConfigAuto_() {
     if (_otaFileAuto >= 0) return (bool)_otaFileAuto;
     _prefs.begin("tkw_ota", true);
     bool a = _prefs.getBool("auto", false);
     _prefs.end();
     return a;
+}
+
+bool TKWifiManager::syncTimeWithNtp_(const String& ntpServer, uint32_t timeoutMs) {
+    if (WiFi.status() != WL_CONNECTED) return false;
+    String srv = ntpServer;
+    srv.trim();
+    if (!srv.length()) srv = "pool.ntp.org";
+    configTime(0, 0, srv.c_str());
+    const uint32_t t0 = millis();
+    while (millis() - t0 < timeoutMs) {
+        if (time(nullptr) > 1700000000) return true;
+        delay(100);
+    }
+    return false;
 }
 
 void TKWifiManager::handleOtaInfo() {
@@ -1329,6 +1366,12 @@ void TKWifiManager::handleOtaInfo() {
     tkwmAppJsonVal_(out, ctrl);
     out += F("\",\"currentVersion\":\"");
     tkwmAppJsonVal_(out, String(TKWM_FW_VERSION));
+    out += F("\",\"timeSynced\":");
+    out += (time(nullptr) > 1700000000) ? "true" : "false";
+    out += F(",\"deviceTime\":\"");
+    tkwmAppJsonVal_(out, tkwmIsoTimeNowUtc_());
+    out += F("\",\"ntpServer\":\"");
+    tkwmAppJsonVal_(out, otaConfigNtp_());
     out += F("\"}");
     _server.send(200, "application/json", out);
 }
@@ -1337,6 +1380,7 @@ void TKWifiManager::handleOtaConfig() {
     if (!_otaConfLoaded) loadOtaConf_();
     const String  h  = tkwmNormHost_(_otaFileHost);
     const String& tk = _otaFileToken;
+    const String  ntp = otaConfigNtp_();
     const bool    au = otaConfigAuto_();
     String        out;
     out.reserve(120 + h.length() + tk.length());
@@ -1344,6 +1388,8 @@ void TKWifiManager::handleOtaConfig() {
     tkwmAppJsonVal_(out, h);
     out += F("\",\"token\":\"");
     tkwmAppJsonVal_(out, tk);
+    out += F("\",\"ntp\":\"");
+    tkwmAppJsonVal_(out, ntp);
     out += F("\",\"auto\":");
     out += au ? "true" : "false";
     out += F(",\"hasCreds\":");
@@ -1375,6 +1421,9 @@ void TKWifiManager::handleOtaSaveSettings() {
         _otaFileHost = hostIn;
     if (tkwmJsonGetString(b, "token", tokenIn))
         _otaFileToken = tokenIn;
+    String ntpIn;
+    if (tkwmJsonGetString(b, "ntp", ntpIn))
+        _otaFileNtp = ntpIn;
 
     _prefs.begin("tkw_ota", false);
     _prefs.putBool("auto", au);
@@ -1397,11 +1446,30 @@ void TKWifiManager::writeOtaConf_(bool autoFlag) {
     f.println(_otaFileHost);
     f.print(F("token="));
     f.println(_otaFileToken);
+    f.print(F("ntp="));
+    f.println(otaConfigNtp_());
     f.print(F("auto="));
     f.println(autoFlag ? "1" : "0");
     f.close();
     _otaFileAuto = autoFlag ? 1 : 0;
     _otaConfLoaded = true;
+}
+
+void TKWifiManager::handleOtaSyncTime() {
+    const String body = tkwmWebServerPostBody_(_server);
+    String ntpIn;
+    if (body.length()) tkwmJsonGetString(body, "ntp", ntpIn);
+    if (ntpIn.length()) _otaFileNtp = ntpIn;
+    const String ntp = otaConfigNtp_();
+    const bool ok = syncTimeWithNtp_(ntp, 12000);
+    String out = F("{\"ok\":");
+    out += ok ? "true" : "false";
+    out += F(",\"ntp\":\"");
+    tkwmAppJsonVal_(out, ntp);
+    out += F("\",\"deviceTime\":\"");
+    tkwmAppJsonVal_(out, tkwmIsoTimeNowUtc_());
+    out += F("\"}");
+    _server.send(200, "application/json", out);
 }
 
 // POST resolve-download на ESPConnect; out: firmware_version, download_url, latest_firmware_version, err
@@ -1673,6 +1741,7 @@ void TKWifiManager::handleOtaCheck() {
     if (h.isEmpty()) h = tkwmNormHost_(_otaFileHost);
     String tk = tokenI;
     if (tk.isEmpty()) tk = _otaFileToken;
+    (void)syncTimeWithNtp_(otaConfigNtp_(), 12000);
     if (h.isEmpty() || tk.isEmpty()) {
         _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"host and token required\"}");
         return;
@@ -1770,6 +1839,7 @@ void TKWifiManager::handleOtaInstall() {
     if (h.isEmpty()) h = tkwmNormHost_(_otaFileHost);
     String tk = tokenI;
     if (tk.isEmpty()) tk = _otaFileToken;
+    (void)syncTimeWithNtp_(otaConfigNtp_(), 12000);
     if (h.isEmpty() || tk.isEmpty()) {
         _server.send(200, "application/json", "{\"ok\":false,\"msg\":\"host and token required\"}");
         return;

@@ -81,11 +81,15 @@
       <input id="token" class="wide" type="password" style="flex:1;min-width:0" placeholder="JWT" autocomplete="off">
       <button type="button" id="tokb">Показать</button>
     </div>
+    <label for="ntp">NTP сервер времени</label>
+    <input id="ntp" class="wide" type="text" placeholder="pool.ntp.org" autocomplete="off">
+    <p class="mut" style="margin:8px 0 0">Текущее время устройства: <b id="devtime">—</b></p>
     <label class="row" style="user-select:none;cursor:pointer;margin-top:10px">
       <input id="autocb" type="checkbox"> <span>Авто проверка обновлений при открытии</span>
     </label>
     <div class="row" style="margin-top:12px">
       <button type="button" id="bsave">Сохранить в ota.conf</button>
+      <button type="button" id="bsync">Синхронизировать время</button>
       <button type="button" id="bcheck">Проверить обновления</button>
     </div>
     <div id="esplog" class="mut" style="margin-top:10px"></div>
@@ -123,8 +127,8 @@
 <script>
 const SKIP_KEY = "tkwm_ota_skip";
 const $ = s => document.querySelector(s);
-const host = $("#host"), token = $("#token"), bcheck = $("#bcheck"), bsave = $("#bsave");
-const esplog = $("#esplog"), curv = $("#curv"), ctrl = $("#ctrl");
+const host = $("#host"), token = $("#token"), ntp = $("#ntp"), bcheck = $("#bcheck"), bsave = $("#bsave"), bsync = $("#bsync");
+const esplog = $("#esplog"), curv = $("#curv"), ctrl = $("#ctrl"), devtime = $("#devtime");
 const autocb = $("#autocb"), tokb = $("#tokb");
 const mb = $("#mb"), mbd = $("#mbd"), bskip = $("#bskip"), bupd = $("#bupd");
 let lastRemote = "";
@@ -155,6 +159,7 @@ async function persistOtaSettings() {
   await postJson("/api/ota/save", {
     host: host.value.trim(),
     token: token.value.trim(),
+    ntp: ntp.value.trim(),
     auto: !!autocb.checked
   });
 }
@@ -214,6 +219,17 @@ bsave.addEventListener("click", async function () {
     esplog.innerHTML = "<span class='err'>Ошибка сохранения</span>";
   }
 });
+bsync.addEventListener("click", async function () {
+  esplog.textContent = "Синхронизация времени...";
+  const j = await postJson("/api/ota/sync-time", { ntp: ntp.value.trim() });
+  if (j && j.ok) {
+    if (j.deviceTime) devtime.textContent = j.deviceTime;
+    esplog.innerHTML = "<span class='ok'>Время синхронизировано</span>";
+  } else {
+    const m = (j && (j.msg || j.detail)) ? (j.msg || j.detail) : "синхронизация не удалась";
+    esplog.innerHTML = "<span class='err'>" + m + "</span>";
+  }
+});
 tokb.addEventListener("click", showTok);
 autocb.addEventListener("change", function () { saveAuto(); upBtn(); });
 
@@ -268,11 +284,14 @@ form.addEventListener("submit", function (ev) {
     if (cfg && cfg.ok) {
       if (typeof cfg.host === "string") host.value = cfg.host;
       if (typeof cfg.token === "string") token.value = cfg.token;
+      if (typeof cfg.ntp === "string") ntp.value = cfg.ntp;
       autocb.checked = !!cfg.auto;
     }
     if (inf && inf.ok) {
       curv.textContent = inf.currentVersion || "—";
       ctrl.textContent = inf.controller || "—";
+      devtime.textContent = inf.deviceTime || "—";
+      if (!ntp.value && typeof inf.ntpServer === "string") ntp.value = inf.ntpServer;
     }
     upBtn();
     if (cfg && cfg.ok && cfg.auto && cfg.hasCreds) {

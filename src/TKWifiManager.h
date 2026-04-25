@@ -161,7 +161,7 @@ private:
     uint32_t _otaRestartAt     = 0;
 
     // ota.conf (кэш после loadOtaConf_)
-    String  _otaFileHost, _otaFileToken;
+    String  _otaFileHost, _otaFileToken, _otaFileNtp;
     int8_t  _otaFileAuto = -1; // -1: ключа auto в файле не было
     bool    _otaConfLoaded = false;
     bool    _uploadOtaConfBlocked = false;
@@ -208,8 +208,11 @@ private:
     void   handleOtaCheck();
     void   handleOtaInstall();
     void   handleOtaSaveSettings();
+    void   handleOtaSyncTime();
     void   loadOtaConf_();
     void   writeOtaConf_(bool autoFlag);
+    String otaConfigNtp_();
+    bool   syncTimeWithNtp_(const String& ntpServer, uint32_t timeoutMs = 12000);
     String otaConfigHost_();   // merge file
     String otaConfigToken_();
     bool   otaConfigAuto_();   // file или Preferences
