@@ -161,11 +161,13 @@ private:
     uint32_t _otaRestartAt     = 0;
 
     // ota.conf (кэш после loadOtaConf_)
-    String  _otaFileHost, _otaFileToken, _otaFileNtp;
+    String  _otaFileHost, _otaFileToken, _otaFileNtp, _otaFileTimezone;
     int16_t _otaFileTzOffsetMin = 0; // смещение от UTC в минутах
     int8_t  _otaFileAuto = -1; // -1: ключа auto в файле не было
     bool    _otaConfLoaded = false;
     bool    _uploadOtaConfBlocked = false;
+    bool    _wasStaConnected = false;
+    uint32_t _lastAutoTimeSyncMs = 0;
 
     // ===== внутреннее =====
     void  loadCreds();
@@ -210,11 +212,16 @@ private:
     void   handleOtaInstall();
     void   handleOtaSaveSettings();
     void   handleOtaSyncTime();
+    void   handleOtaTimezones();
     void   loadOtaConf_();
     void   writeOtaConf_(bool autoFlag);
     String otaConfigNtp_();
+    String otaConfigTimezone_();
     int16_t otaConfigTzOffsetMin_();
     bool   syncTimeWithNtp_(const String& ntpServer, uint32_t timeoutMs = 12000);
+    bool   fetchTimezoneOffsetMin_(const String& timezone, int16_t& outMin);
+    bool   ensureTimezoneListCache_();
+    String readTimezoneListJson_();
     String otaConfigHost_();   // merge file
     String otaConfigToken_();
     bool   otaConfigAuto_();   // file или Preferences

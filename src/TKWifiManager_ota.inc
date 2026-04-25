@@ -84,8 +84,10 @@ static const char OTA_HTML[] PROGMEM = R"TKWOTAEMBED99(
     </div>
     <label for="ntp">NTP сервер времени</label>
     <input id="ntp" class="wide" type="text" placeholder="pool.ntp.org" autocomplete="off">
-    <label for="tz">Часовой пояс (смещение от UTC, часы: например +3 или -5)</label>
-    <input id="tz" class="wide" type="number" min="-12" max="14" step="1" placeholder="0" autocomplete="off">
+    <label for="tz">Часовой пояс (город)</label>
+    <select id="tz" class="wide">
+      <option value="UTC">UTC</option>
+    </select>
     <p class="mut" style="margin:8px 0 0">Текущее время устройства: <b id="devtime">—</b></p>
     <label class="row" style="user-select:none;cursor:pointer;margin-top:10px">
       <input id="autocb" type="checkbox"> <span>Авто проверка обновлений при открытии</span>
@@ -159,16 +161,11 @@ async function postJson(url, o) {
 }
 
 async function persistOtaSettings() {
-  var tzMin = 0;
-  if (tz && tz.value !== "") {
-    var tzHours = parseInt(tz.value, 10);
-    if (!isNaN(tzHours)) tzMin = tzHours * 60;
-  }
   await postJson("/api/ota/save", {
     host: host.value.trim(),
     token: token.value.trim(),
     ntp: ntp.value.trim(),
-    tzOffsetMin: String(tzMin),
+    timezone: tz.value || "UTC",
     auto: !!autocb.checked
   });
 }
@@ -218,6 +215,39 @@ async function doInstall() {
   } else esplog.innerHTML = "<span class='err'>" + (j && (j.msg || j.detail) ? (j.msg || j.detail) : "ошибка") + "</span>";
 }
 
+async function loadTimezones(selectedTz) {
+  try {
+    const r = await fetch("/api/ota/timezones");
+    const j = await r.json();
+    if (!j || !j.ok) return;
+    const arr = Array.isArray(j.timezones) ? j.timezones : [];
+    tz.innerHTML = "";
+    if (!arr.length) {
+      tz.innerHTML = "<option value=\"UTC\">UTC</option>";
+    } else {
+      arr.forEach(function (name) {
+        if (typeof name !== "string" || !name.length) return;
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        tz.appendChild(opt);
+      });
+    }
+    const pick = (selectedTz && String(selectedTz).trim()) || (j.selected && String(j.selected).trim()) || "UTC";
+    tz.value = pick;
+    if (tz.value !== pick) {
+      const extra = document.createElement("option");
+      extra.value = pick;
+      extra.textContent = pick;
+      tz.appendChild(extra);
+      tz.value = pick;
+    }
+  } catch (e) {
+    tz.innerHTML = "<option value=\"UTC\">UTC</option>";
+    tz.value = "UTC";
+  }
+}
+
 bcheck.addEventListener("click", doCheck);
 bsave.addEventListener("click", async function () {
   esplog.textContent = "Сохранение...";
@@ -230,7 +260,7 @@ bsave.addEventListener("click", async function () {
 });
 bsync.addEventListener("click", async function () {
   esplog.textContent = "Синхронизация времени...";
-  const j = await postJson("/api/ota/sync-time", { ntp: ntp.value.trim() });
+  const j = await postJson("/api/ota/sync-time", { ntp: ntp.value.trim(), timezone: tz.value || "UTC" });
   if (j && j.ok) {
     if (j.deviceTime) devtime.textContent = j.deviceTime;
     esplog.innerHTML = "<span class='ok'>Время синхронизировано</span>";
@@ -294,20 +324,20 @@ form.addEventListener("submit", function (ev) {
       if (typeof cfg.host === "string") host.value = cfg.host;
       if (typeof cfg.token === "string") token.value = cfg.token;
       if (typeof cfg.ntp === "string") ntp.value = cfg.ntp;
-      if (typeof cfg.tzOffsetMin !== "undefined" && tz) {
-        var tzFromCfg = parseInt(String(cfg.tzOffsetMin), 10);
-        if (!isNaN(tzFromCfg)) tz.value = String(Math.round(tzFromCfg / 60));
-      }
       autocb.checked = !!cfg.auto;
+      return loadTimezones(cfg.timezone || "UTC").then(function () { return { cfg: cfg, inf: inf }; });
+    }
+    return loadTimezones("UTC").then(function () { return { cfg: cfg, inf: inf }; });
+  }).then(function (ctx) {
+    var cfg = ctx.cfg, inf = ctx.inf;
+    if (cfg && cfg.ok && typeof cfg.timezone === "string" && cfg.timezone) {
+      tz.value = cfg.timezone;
     }
     if (inf && inf.ok) {
       curv.textContent = inf.currentVersion || "—";
       ctrl.textContent = inf.controller || "—";
       devtime.textContent = inf.deviceTime || "—";
-      if ((tz.value === "" || tz.value === "0") && typeof inf.tzOffsetMin !== "undefined") {
-        var tzFromInfo = parseInt(String(inf.tzOffsetMin), 10);
-        if (!isNaN(tzFromInfo)) tz.value = String(Math.round(tzFromInfo / 60));
-      }
+      if (!tz.value && typeof inf.timezone === "string") tz.value = inf.timezone;
       if (!ntp.value && typeof inf.ntpServer === "string") ntp.value = inf.ntpServer;
     }
     upBtn();

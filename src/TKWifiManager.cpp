@@ -7,6 +7,9 @@
 #include <cstdio>
 #include <cstring>
 
+static const char* TKWM_TZ_CACHE_PATH = "/timezones.json";
+static const uint32_t TKWM_AUTO_TIME_SYNC_INTERVAL_MS = 24UL * 60UL * 60UL * 1000UL;
+
 // Токен порта встроен в JS как число, чтобы встроенные HTML совпадали с макросом TKWM_WS_PORT
 #ifndef TKWM_XSTR
 #define TKWM_XSTR2(x) #x
@@ -562,9 +565,19 @@ void TKWifiManager::serviceTick() {
         const uint32_t now = millis();
         const bool connected = (WiFi.status() == WL_CONNECTED);
         if (connected) {
+            const bool justConnected = !_wasStaConnected;
+            _wasStaConnected = true;
             _staLostSinceMs = 0;
             _lastFullScanReconnectMs = 0;
+            const bool syncDue = (_lastAutoTimeSyncMs == 0) || ((uint32_t)(now - _lastAutoTimeSyncMs) >= TKWM_AUTO_TIME_SYNC_INTERVAL_MS);
+            if (syncDue && (justConnected || _lastAutoTimeSyncMs == 0 || (uint32_t)(now - _lastAutoTimeSyncMs) >= TKWM_AUTO_TIME_SYNC_INTERVAL_MS)) {
+                (void)syncTimeWithNtp_(otaConfigNtp_(), 12000);
+                int16_t offMin = 0;
+                if (fetchTimezoneOffsetMin_(otaConfigTimezone_(), offMin)) _otaFileTzOffsetMin = offMin;
+                _lastAutoTimeSyncMs = now;
+            }
         } else {
+            _wasStaConnected = false;
             if (_staLostSinceMs == 0) _staLostSinceMs = now;
             if (now - _lastReconnectAttemptMs >= TKWM_RECONNECT_INTERVAL_MS) {
                 _lastReconnectAttemptMs = now;
@@ -757,6 +770,7 @@ void TKWifiManager::setupRoutes() {
     _server.on("/api/ota/install", HTTP_POST, [this] { handleOtaInstall(); });
     _server.on("/api/ota/save", HTTP_POST, [this] { handleOtaSaveSettings(); });
     _server.on("/api/ota/sync-time", HTTP_POST, [this] { handleOtaSyncTime(); });
+    _server.on("/api/ota/timezones", HTTP_GET, [this] { handleOtaTimezones(); });
 
     // 404
     _server.onNotFound([this] { handleNotFound(); });
@@ -1364,6 +1378,7 @@ void TKWifiManager::loadOtaConf_() {
     _otaFileHost         = "";
     _otaFileToken        = "";
     _otaFileNtp          = "";
+    _otaFileTimezone     = "UTC";
     _otaFileTzOffsetMin  = 0;
     _otaFileAuto   = -1;
     if (!_fsOk || !TKWM_FS.exists("/ota.conf")) return;
@@ -1385,6 +1400,8 @@ void TKWifiManager::loadOtaConf_() {
             _otaFileToken = v;
         } else if (k == "ntp") {
             _otaFileNtp = v;
+        } else if (k == "timezone" || k == "tz_name") {
+            _otaFileTimezone = v;
         } else if (k == "tz" || k == "tz_offset") {
             _otaFileTzOffsetMin = tkwmParseTzOffsetMin_(v);
         } else if (k == "auto") {
@@ -1407,6 +1424,12 @@ String TKWifiManager::otaConfigNtp_() {
     return ntp;
 }
 int16_t TKWifiManager::otaConfigTzOffsetMin_() { return _otaFileTzOffsetMin; }
+String TKWifiManager::otaConfigTimezone_() {
+    String tz = _otaFileTimezone;
+    tz.trim();
+    if (!tz.length()) tz = "UTC";
+    return tz;
+}
 bool   TKWifiManager::otaConfigAuto_() {
     if (_otaFileAuto >= 0) return (bool)_otaFileAuto;
     _prefs.begin("tkw_ota", true);
@@ -1429,6 +1452,96 @@ bool TKWifiManager::syncTimeWithNtp_(const String& ntpServer, uint32_t timeoutMs
     return false;
 }
 
+bool TKWifiManager::ensureTimezoneListCache_() {
+    if (!_fsOk) return false;
+    if (TKWM_FS.exists(TKWM_TZ_CACHE_PATH)) return true;
+    if (WiFi.status() != WL_CONNECTED) return false;
+
+    const char* urls[] = {
+        "https://timeapi.io/api/TimeZone/AvailableTimeZones",
+        "https://timeapi.io/api/timezone/availabletimezones"
+    };
+    String payload;
+    bool ok = false;
+    for (size_t i = 0; i < (sizeof(urls) / sizeof(urls[0])); ++i) {
+        HTTPClient http;
+        WiFiClientSecure tlsCl;
+#if TKWM_OTA_INSECURE
+        tlsCl.setInsecure();
+#endif
+        if (!http.begin(tlsCl, urls[i])) continue;
+        http.setConnectTimeout(10000);
+        http.setTimeout(15000);
+        const int code = http.GET();
+        if (code >= 200 && code < 300) {
+            payload = http.getString();
+            http.end();
+            payload.trim();
+            if (payload.startsWith("[")) {
+                ok = true;
+                break;
+            }
+        } else {
+            http.end();
+        }
+    }
+    if (!ok) return false;
+    File f = TKWM_FS.open(TKWM_TZ_CACHE_PATH, "w");
+    if (!f) return false;
+    f.print(payload);
+    f.close();
+    return true;
+}
+
+String TKWifiManager::readTimezoneListJson_() {
+    if (!_fsOk) return "[]";
+    if (!ensureTimezoneListCache_() && !TKWM_FS.exists(TKWM_TZ_CACHE_PATH)) return "[]";
+    File f = TKWM_FS.open(TKWM_TZ_CACHE_PATH, "r");
+    if (!f) return "[]";
+    String s = f.readString();
+    f.close();
+    s.trim();
+    if (!s.startsWith("[")) return "[]";
+    return s;
+}
+
+bool TKWifiManager::fetchTimezoneOffsetMin_(const String& timezone, int16_t& outMin) {
+    if (WiFi.status() != WL_CONNECTED) return false;
+    String tz = timezone;
+    tz.trim();
+    if (!tz.length()) tz = "UTC";
+    String body = String("{\"timeZone\":\"");
+    tkwmAppJsonVal_(body, tz);
+    body += "\"}";
+
+    const char* url = "https://timeapi.io/api/Time/current/zone";
+    HTTPClient http;
+    WiFiClientSecure tlsCl;
+#if TKWM_OTA_INSECURE
+    tlsCl.setInsecure();
+#endif
+    if (!http.begin(tlsCl, url)) return false;
+    http.setConnectTimeout(10000);
+    http.setTimeout(15000);
+    http.addHeader("Content-Type", "application/json");
+    const int code = http.POST(body);
+    const String resp = http.getString();
+    http.end();
+    if (code < 200 || code >= 300) return false;
+
+    int sec = 0;
+    if (tkwmJsonGetInt(resp, "currentUtcOffset", sec) || tkwmJsonGetInt(resp, "currentUtcOffsetSeconds", sec)) {
+        outMin = (int16_t)(sec / 60);
+        return true;
+    }
+    String off;
+    if (tkwmJsonGetString(resp, "currentUtcOffset", off) || tkwmJsonGetString(resp, "currentUtcOffsetText", off)) {
+        outMin = tkwmParseTzOffsetMin_(off);
+        return true;
+    }
+    return false;
+}
+
 void TKWifiManager::handleOtaInfo() {
     if (!_otaConfLoaded) loadOtaConf_();
     String ctrl = tkwmOtaController_();
@@ -1444,6 +1557,8 @@ void TKWifiManager::handleOtaInfo() {
     tkwmAppJsonVal_(out, tkwmIsoTimeNowUtc_());
     out += F("\",\"ntpServer\":\"");
     tkwmAppJsonVal_(out, otaConfigNtp_());
+    out += F("\",\"timezone\":\"");
+    tkwmAppJsonVal_(out, otaConfigTimezone_());
     out += F("\",\"tzOffsetMin\":");
     out += String((int)otaConfigTzOffsetMin_());
     out += F(",\"tzLabel\":\"");
@@ -1457,6 +1572,7 @@ void TKWifiManager::handleOtaConfig() {
     const String  h  = tkwmNormHost_(_otaFileHost);
     const String& tk = _otaFileToken;
     const String  ntp = otaConfigNtp_();
+    const String  tzName = otaConfigTimezone_();
     const int16_t tzOffMin = otaConfigTzOffsetMin_();
     const bool    au = otaConfigAuto_();
     String        out;
@@ -1467,6 +1583,8 @@ void TKWifiManager::handleOtaConfig() {
     tkwmAppJsonVal_(out, tk);
     out += F("\",\"ntp\":\"");
     tkwmAppJsonVal_(out, ntp);
+    out += F("\",\"timezone\":\"");
+    tkwmAppJsonVal_(out, tzName);
     out += F("\",\"tzOffsetMin\":");
     out += String((int)tzOffMin);
     out += F(",\"tzLabel\":\"");
@@ -1505,6 +1623,11 @@ void TKWifiManager::handleOtaSaveSettings() {
     String ntpIn;
     if (tkwmJsonGetString(b, "ntp", ntpIn))
         _otaFileNtp = ntpIn;
+    String tzNameIn;
+    if (tkwmJsonGetString(b, "timezone", tzNameIn)) {
+        tzNameIn.trim();
+        if (tzNameIn.length()) _otaFileTimezone = tzNameIn;
+    }
     String tzIn;
     if (tkwmJsonGetString(b, "tzOffsetMin", tzIn))
         _otaFileTzOffsetMin = tkwmParseTzOffsetMin_(tzIn);
@@ -1532,6 +1655,8 @@ void TKWifiManager::writeOtaConf_(bool autoFlag) {
     f.println(_otaFileToken);
     f.print(F("ntp="));
     f.println(otaConfigNtp_());
+    f.print(F("timezone="));
+    f.println(otaConfigTimezone_());
     f.print(F("tz="));
     f.println(String((int)otaConfigTzOffsetMin_()));
     f.print(F("auto="));
@@ -1546,8 +1671,14 @@ void TKWifiManager::handleOtaSyncTime() {
     String ntpIn;
     if (body.length()) tkwmJsonGetString(body, "ntp", ntpIn);
     if (ntpIn.length()) _otaFileNtp = ntpIn;
+    String timezoneIn;
+    if (body.length()) tkwmJsonGetString(body, "timezone", timezoneIn);
+    if (timezoneIn.length()) _otaFileTimezone = timezoneIn;
     const String ntp = otaConfigNtp_();
     const bool ok = syncTimeWithNtp_(ntp, 12000);
+    int16_t offMin = otaConfigTzOffsetMin_();
+    (void)fetchTimezoneOffsetMin_(otaConfigTimezone_(), offMin);
+    _otaFileTzOffsetMin = offMin;
     String out = F("{\"ok\":");
     out += ok ? "true" : "false";
     out += F(",\"ntp\":\"");
@@ -1558,7 +1689,20 @@ void TKWifiManager::handleOtaSyncTime() {
     out += String((int)otaConfigTzOffsetMin_());
     out += F(",\"tzLabel\":\"");
     tkwmAppJsonVal_(out, tkwmFmtTzOffset_(otaConfigTzOffsetMin_()));
+    out += F("\",\"timezone\":\"");
+    tkwmAppJsonVal_(out, otaConfigTimezone_());
     out += F("\"}");
+    _server.send(200, "application/json", out);
+}
+
+void TKWifiManager::handleOtaTimezones() {
+    if (!_otaConfLoaded) loadOtaConf_();
+    const String listJson = readTimezoneListJson_();
+    String out = F("{\"ok\":true,\"selected\":\"");
+    tkwmAppJsonVal_(out, otaConfigTimezone_());
+    out += F("\",\"timezones\":");
+    out += listJson;
+    out += "}";
     _server.send(200, "application/json", out);
 }
 
