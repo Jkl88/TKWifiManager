@@ -44,6 +44,31 @@
 #define TKWM_WIFI_COUNTRY "EU"
 #endif
 
+/** Фоновая задача библиотеки (1 = включена, 0 = только manual loop()) */
+#ifndef TKWM_USE_BACKGROUND_TASK
+#define TKWM_USE_BACKGROUND_TASK 1
+#endif
+
+/** Ядро для фоновой задачи (обычно loop() Arduino работает на другом ядре) */
+#ifndef TKWM_TASK_CORE
+#define TKWM_TASK_CORE 0
+#endif
+
+/** Пауза между итерациями фоновой задачи, мс */
+#ifndef TKWM_TASK_TICK_MS
+#define TKWM_TASK_TICK_MS 5
+#endif
+
+/** Интервал попыток переподключения в STA-режиме */
+#ifndef TKWM_RECONNECT_INTERVAL_MS
+#define TKWM_RECONNECT_INTERVAL_MS 4000
+#endif
+
+/** Время ожидания до возврата в AP при длительном оффлайне */
+#ifndef TKWM_STA_FAIL_TO_AP_MS
+#define TKWM_STA_FAIL_TO_AP_MS 25000
+#endif
+
 /** Версия прошивки для OTA/ESPConnect (в проекте: -DTKWM_FW_VERSION=\\\"1.2.3\\\") */
 #ifndef TKWM_FW_VERSION
 #define TKWM_FW_VERSION "0.0.0"
@@ -109,6 +134,10 @@ private:
     String          _apSsid;      // уникальный SSID (prefix-XXXXXX)
     bool            _fsOk = false;
     String _apSsidPrefix;
+    volatile bool _bgTaskRunning = false;
+    TaskHandle_t _bgTaskHandle = nullptr;
+    uint32_t _lastReconnectAttemptMs = 0;
+    uint32_t _staLostSinceMs = 0;
     // upload (состояние multipart)
     File   _uploadFile;
     String _uploadToPath; // полный итоговый путь файла для ответа
@@ -135,7 +164,11 @@ private:
     int   findBySsid(const String& ssid) const;
 
     bool  tryConnectBestKnown(uint32_t timeoutMs = 12000);
+    bool  tryConnectBySavedOrder(uint32_t timeoutMs = 8000);
+    bool  connectWithCred(const String& ssid, const String& pass, uint32_t timeoutMs, uint8_t attempts = 2);
     void  startAPCaptive();
+    void  serviceTick();
+    static void bgTaskEntry(void* arg);
 
     // ==== роутинг/обработчики ====
     void setupRoutes();

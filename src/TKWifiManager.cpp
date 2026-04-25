@@ -473,6 +473,7 @@ bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
 
     // Попробуем подключиться к лучшей из известных
     bool staOk = tryConnectBestKnown();
+    if (!staOk) staOk = tryConnectBySavedOrder();
     if (!staOk) startAPCaptive();
 
     // Маршруты и WS
@@ -487,10 +488,46 @@ bool TKWifiManager::begin(const String& apSsidPrefix, bool formatFSIfNeeded) {
 
     // UDP discovery
     _udp.begin(TKWM_DISCOVERY_PORT);
+
+#if TKWM_USE_BACKGROUND_TASK
+#if !CONFIG_FREERTOS_UNICORE
+    if (!_bgTaskHandle) {
+        _bgTaskRunning = true;
+        BaseType_t ok = xTaskCreatePinnedToCore(
+            TKWifiManager::bgTaskEntry,
+            "tkwm_task",
+            8192,
+            this,
+            1,
+            &_bgTaskHandle,
+            TKWM_TASK_CORE
+        );
+        if (ok != pdPASS) {
+            _bgTaskHandle = nullptr;
+            _bgTaskRunning = false;
+            Serial.println(F("[TKWM] background task start failed, fallback to manual loop()"));
+        } else {
+            Serial.printf("[TKWM] background task started on core %d\n", (int)TKWM_TASK_CORE);
+        }
+    }
+#else
+    Serial.println(F("[TKWM] unicore build: background task pinning disabled"));
+#endif
+#endif
     return true; // HTTP/WS готовы; состояние ФС — isFilesystemOk()
 }
 
 void TKWifiManager::loop() {
+    // При включённой фоновой задаче оставляем loop() безопасным no-op для совместимости API.
+#if TKWM_USE_BACKGROUND_TASK
+#if !CONFIG_FREERTOS_UNICORE
+    if (_bgTaskHandle) return;
+#endif
+#endif
+    serviceTick();
+}
+
+void TKWifiManager::serviceTick() {
     if (_otaRestartPending && millis() >= _otaRestartAt) {
         ESP.restart();
     }
@@ -499,11 +536,26 @@ void TKWifiManager::loop() {
     _ws.loop();
     udpTick();
 
-    // если в STA пропала сеть — вернёмся в AP
-    static uint32_t t = 0;
-    if (!_captiveMode && millis() - t > 4000) {
-        t = millis();
-        if (WiFi.status() != WL_CONNECTED) startAPCaptive();
+    // Если в STA сеть пропала — сначала пытаемся восстановиться, потом только AP fallback.
+    if (!_captiveMode) {
+        const uint32_t now = millis();
+        const bool connected = (WiFi.status() == WL_CONNECTED);
+        if (connected) {
+            _staLostSinceMs = 0;
+        } else {
+            if (_staLostSinceMs == 0) _staLostSinceMs = now;
+            if (now - _lastReconnectAttemptMs >= TKWM_RECONNECT_INTERVAL_MS) {
+                _lastReconnectAttemptMs = now;
+                if (tryConnectBestKnown(12000) || tryConnectBySavedOrder(8000)) {
+                    _staLostSinceMs = 0;
+                    return;
+                }
+            }
+            if (_staLostSinceMs > 0 && (now - _staLostSinceMs) >= TKWM_STA_FAIL_TO_AP_MS) {
+                startAPCaptive();
+                _staLostSinceMs = 0;
+            }
+        }
     }
 }
 
@@ -551,13 +603,7 @@ bool TKWifiManager::tryConnectBestKnown(uint32_t timeoutMs) {
     }
     if (bestIdx < 0) return false;
 
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect(true, true);
-    delay(50);
-    WiFi.begin(_creds[bestIdx].ssid.c_str(), _creds[bestIdx].pass.c_str());
-    uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < timeoutMs) delay(200);
-    if (WiFi.status() == WL_CONNECTED) {
+    if (connectWithCred(_creds[bestIdx].ssid, _creds[bestIdx].pass, timeoutMs, 2)) {
         _captiveMode = false;
         _dns.stop();
         Serial.print(F("[TKWM] Wi-Fi STA: SSID="));
@@ -565,6 +611,40 @@ bool TKWifiManager::tryConnectBestKnown(uint32_t timeoutMs) {
         Serial.print(F(" IP="));
         Serial.println(WiFi.localIP().toString());
         return true;
+    }
+    return false;
+}
+
+bool TKWifiManager::tryConnectBySavedOrder(uint32_t timeoutMs) {
+    if (_credN == 0) return false;
+    for (int i = 0; i < _credN; ++i) {
+        if (connectWithCred(_creds[i].ssid, _creds[i].pass, timeoutMs, 1)) {
+            _captiveMode = false;
+            _dns.stop();
+            Serial.print(F("[TKWM] Wi-Fi STA fallback: SSID="));
+            Serial.print(_creds[i].ssid);
+            Serial.print(F(" IP="));
+            Serial.println(WiFi.localIP().toString());
+            return true;
+        }
+    }
+    return false;
+}
+
+bool TKWifiManager::connectWithCred(const String& ssid, const String& pass, uint32_t timeoutMs, uint8_t attempts) {
+    if (ssid.isEmpty()) return false;
+    for (uint8_t attempt = 0; attempt < attempts; ++attempt) {
+        WiFi.mode(WIFI_STA);
+        // Не стираем сохранённые настройки SDK, просто разрываем текущую сессию.
+        WiFi.disconnect(false, true);
+        delay(80);
+        WiFi.begin(ssid.c_str(), pass.c_str());
+        const uint32_t t0 = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - t0 < timeoutMs) {
+            delay(120);
+        }
+        if (WiFi.status() == WL_CONNECTED) return true;
+        delay(150);
     }
     return false;
 }
@@ -588,6 +668,20 @@ void TKWifiManager::startAPCaptive() {
     Serial.print(_apSsid);
     Serial.print(F(" IP="));
     Serial.println(WiFi.softAPIP().toString());
+}
+
+void TKWifiManager::bgTaskEntry(void* arg) {
+    TKWifiManager* self = static_cast<TKWifiManager*>(arg);
+    if (!self) {
+        vTaskDelete(nullptr);
+        return;
+    }
+    while (self->_bgTaskRunning) {
+        self->serviceTick();
+        vTaskDelay(pdMS_TO_TICKS(TKWM_TASK_TICK_MS));
+    }
+    self->_bgTaskHandle = nullptr;
+    vTaskDelete(nullptr);
 }
 
 // ===================== Web/Routes =====================
