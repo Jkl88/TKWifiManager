@@ -1281,8 +1281,12 @@ static String tkwmWebServerPostBody_(WebServer& s) {
 }
 /** Символ токеном, как в C (напр. ESP32), чтобы совпадало с ESPConnect. */
 static String tkwmOtaController_() {
-#ifdef TKWM_OTA_CONTROLLER
-    // Берём значение токена из -D..., при этом не даём препроцессору разворачивать ESP32 -> 1.
+#ifdef TKWM_OTA_CONTROLLER_STR
+    // Строковый макрос из pre-скрипта: не страдает от ESP32 -> 1 в препроцессоре.
+    String c = String(TKWM_OTA_CONTROLLER_STR);
+    return c;
+#elif defined(TKWM_OTA_CONTROLLER)
+    // Fallback для ручной конфигурации без *_STR.
 #define TKW_OTA_VAL TKWM_OTA_CONTROLLER
 #define TKW_OTA_CSTR1(x) #x
 #define TKW_OTA_CSTR2(x) TKW_OTA_CSTR1(x)
@@ -1290,6 +1294,10 @@ static String tkwmOtaController_() {
 #undef TKW_OTA_CSTR2
 #undef TKW_OTA_CSTR1
 #undef TKW_OTA_VAL
+    return c;
+#elif defined(DTKWM_OTA_CONTROLLER_STR)
+    // Backward compatibility for older pre-scripts with DTKWM_* namespace.
+    String c = String(DTKWM_OTA_CONTROLLER_STR);
     return c;
 #elif defined(DTKWM_OTA_CONTROLLER)
 #define TKW_OTA_VAL DTKWM_OTA_CONTROLLER
