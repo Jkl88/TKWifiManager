@@ -1288,6 +1288,14 @@ static String tkwmOtaController_() {
 #undef TKW_OTA_CSTR2
 #undef TKW_OTA_CSTR1
     return c;
+#elif defined(DTKWM_OTA_CONTROLLER)
+#define TKW_OTA_CSTR1(x) #x
+#define TKW_OTA_CSTR2(x) TKW_OTA_CSTR1(x)
+    // Backward compatibility for older pre-scripts that defined DTKWM_OTA_CONTROLLER.
+    String c = String(TKW_OTA_CSTR2(DTKWM_OTA_CONTROLLER));
+#undef TKW_OTA_CSTR2
+#undef TKW_OTA_CSTR1
+    return c;
 #else
     return String(ESP.getChipModel());
 #endif
