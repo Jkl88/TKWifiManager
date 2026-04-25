@@ -162,6 +162,7 @@ private:
 
     // ota.conf (кэш после loadOtaConf_)
     String  _otaFileHost, _otaFileToken, _otaFileNtp;
+    int16_t _otaFileTzOffsetMin = 0; // смещение от UTC в минутах
     int8_t  _otaFileAuto = -1; // -1: ключа auto в файле не было
     bool    _otaConfLoaded = false;
     bool    _uploadOtaConfBlocked = false;
@@ -212,6 +213,7 @@ private:
     void   loadOtaConf_();
     void   writeOtaConf_(bool autoFlag);
     String otaConfigNtp_();
+    int16_t otaConfigTzOffsetMin_();
     bool   syncTimeWithNtp_(const String& ntpServer, uint32_t timeoutMs = 12000);
     String otaConfigHost_();   // merge file
     String otaConfigToken_();

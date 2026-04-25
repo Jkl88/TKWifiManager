@@ -84,6 +84,8 @@ static const char OTA_HTML[] PROGMEM = R"TKWOTAEMBED99(
     </div>
     <label for="ntp">NTP сервер времени</label>
     <input id="ntp" class="wide" type="text" placeholder="pool.ntp.org" autocomplete="off">
+    <label for="tz">Часовой пояс (смещение от UTC, часы: например +3 или -5)</label>
+    <input id="tz" class="wide" type="number" min="-12" max="14" step="1" placeholder="0" autocomplete="off">
     <p class="mut" style="margin:8px 0 0">Текущее время устройства: <b id="devtime">—</b></p>
     <label class="row" style="user-select:none;cursor:pointer;margin-top:10px">
       <input id="autocb" type="checkbox"> <span>Авто проверка обновлений при открытии</span>
@@ -128,7 +130,7 @@ static const char OTA_HTML[] PROGMEM = R"TKWOTAEMBED99(
 <script>
 const SKIP_KEY = "tkwm_ota_skip";
 const $ = s => document.querySelector(s);
-const host = $("#host"), token = $("#token"), ntp = $("#ntp"), bcheck = $("#bcheck"), bsave = $("#bsave"), bsync = $("#bsync");
+const host = $("#host"), token = $("#token"), ntp = $("#ntp"), tz = $("#tz"), bcheck = $("#bcheck"), bsave = $("#bsave"), bsync = $("#bsync");
 const esplog = $("#esplog"), curv = $("#curv"), ctrl = $("#ctrl"), devtime = $("#devtime");
 const autocb = $("#autocb"), tokb = $("#tokb");
 const mb = $("#mb"), mbd = $("#mbd"), bskip = $("#bskip"), bupd = $("#bupd");
@@ -157,10 +159,16 @@ async function postJson(url, o) {
 }
 
 async function persistOtaSettings() {
+  var tzMin = 0;
+  if (tz && tz.value !== "") {
+    var tzHours = parseInt(tz.value, 10);
+    if (!isNaN(tzHours)) tzMin = tzHours * 60;
+  }
   await postJson("/api/ota/save", {
     host: host.value.trim(),
     token: token.value.trim(),
     ntp: ntp.value.trim(),
+    tzOffsetMin: String(tzMin),
     auto: !!autocb.checked
   });
 }
@@ -286,12 +294,20 @@ form.addEventListener("submit", function (ev) {
       if (typeof cfg.host === "string") host.value = cfg.host;
       if (typeof cfg.token === "string") token.value = cfg.token;
       if (typeof cfg.ntp === "string") ntp.value = cfg.ntp;
+      if (typeof cfg.tzOffsetMin !== "undefined" && tz) {
+        var tzFromCfg = parseInt(String(cfg.tzOffsetMin), 10);
+        if (!isNaN(tzFromCfg)) tz.value = String(Math.round(tzFromCfg / 60));
+      }
       autocb.checked = !!cfg.auto;
     }
     if (inf && inf.ok) {
       curv.textContent = inf.currentVersion || "—";
       ctrl.textContent = inf.controller || "—";
       devtime.textContent = inf.deviceTime || "—";
+      if ((tz.value === "" || tz.value === "0") && typeof inf.tzOffsetMin !== "undefined") {
+        var tzFromInfo = parseInt(String(inf.tzOffsetMin), 10);
+        if (!isNaN(tzFromInfo)) tz.value = String(Math.round(tzFromInfo / 60));
+      }
       if (!ntp.value && typeof inf.ntpServer === "string") ntp.value = inf.ntpServer;
     }
     upBtn();

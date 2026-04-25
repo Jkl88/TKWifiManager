@@ -1228,6 +1228,51 @@ static String tkwmIsoTimeNowUtc_() {
         tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
     return String(buf);
 }
+static int16_t tkwmParseTzOffsetMin_(const String& raw) {
+    String s = raw;
+    s.trim();
+    if (!s.length()) return 0;
+    int sign = 1;
+    if (s.startsWith("+")) {
+        s.remove(0, 1);
+    } else if (s.startsWith("-")) {
+        sign = -1;
+        s.remove(0, 1);
+    }
+    int hh = 0, mm = 0;
+    int c = s.indexOf(':');
+    if (c >= 0) {
+        hh = s.substring(0, c).toInt();
+        mm = s.substring(c + 1).toInt();
+    } else {
+        hh = s.toInt();
+    }
+    if (hh < 0) hh = 0;
+    if (hh > 14) hh = 14;
+    if (mm < 0) mm = 0;
+    if (mm > 59) mm = 59;
+    return (int16_t)(sign * (hh * 60 + mm));
+}
+static String tkwmFmtTzOffset_(int16_t offMin) {
+    const int absMin = offMin < 0 ? -offMin : offMin;
+    const int hh = absMin / 60;
+    const int mm = absMin % 60;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "UTC%c%02d:%02d", (offMin < 0 ? '-' : '+'), hh, mm);
+    return String(buf);
+}
+static String tkwmIsoTimeNowWithOffset_(int16_t offMin) {
+    time_t now = time(nullptr);
+    if (now < 1700000000) return String();
+    now += (time_t)offMin * 60;
+    struct tm tmv;
+    gmtime_r(&now, &tmv);
+    char buf[48];
+    snprintf(
+        buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d %s", tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+        tmv.tm_hour, tmv.tm_min, tmv.tm_sec, tkwmFmtTzOffset_(offMin).c_str());
+    return String(buf);
+}
 static void tkwmAppJsonVal_(String& o, const String& s) {
     for (uint32_t i = 0; i < s.length(); ++i) {
         unsigned char c = (unsigned char)s[i];
@@ -1319,6 +1364,7 @@ void TKWifiManager::loadOtaConf_() {
     _otaFileHost         = "";
     _otaFileToken        = "";
     _otaFileNtp          = "";
+    _otaFileTzOffsetMin  = 0;
     _otaFileAuto   = -1;
     if (!_fsOk || !TKWM_FS.exists("/ota.conf")) return;
     File f = TKWM_FS.open("/ota.conf", "r");
@@ -1339,6 +1385,8 @@ void TKWifiManager::loadOtaConf_() {
             _otaFileToken = v;
         } else if (k == "ntp") {
             _otaFileNtp = v;
+        } else if (k == "tz" || k == "tz_offset") {
+            _otaFileTzOffsetMin = tkwmParseTzOffsetMin_(v);
         } else if (k == "auto") {
             v.toLowerCase();
             if (v == "1" || v == "true" || v == "yes" || v == "on")
@@ -1358,6 +1406,7 @@ String TKWifiManager::otaConfigNtp_() {
     if (!ntp.length()) ntp = "pool.ntp.org";
     return ntp;
 }
+int16_t TKWifiManager::otaConfigTzOffsetMin_() { return _otaFileTzOffsetMin; }
 bool   TKWifiManager::otaConfigAuto_() {
     if (_otaFileAuto >= 0) return (bool)_otaFileAuto;
     _prefs.begin("tkw_ota", true);
@@ -1390,9 +1439,15 @@ void TKWifiManager::handleOtaInfo() {
     out += F("\",\"timeSynced\":");
     out += (time(nullptr) > 1700000000) ? "true" : "false";
     out += F(",\"deviceTime\":\"");
+    tkwmAppJsonVal_(out, tkwmIsoTimeNowWithOffset_(otaConfigTzOffsetMin_()));
+    out += F("\",\"deviceTimeUtc\":\"");
     tkwmAppJsonVal_(out, tkwmIsoTimeNowUtc_());
     out += F("\",\"ntpServer\":\"");
     tkwmAppJsonVal_(out, otaConfigNtp_());
+    out += F("\",\"tzOffsetMin\":");
+    out += String((int)otaConfigTzOffsetMin_());
+    out += F(",\"tzLabel\":\"");
+    tkwmAppJsonVal_(out, tkwmFmtTzOffset_(otaConfigTzOffsetMin_()));
     out += F("\"}");
     _server.send(200, "application/json", out);
 }
@@ -1402,6 +1457,7 @@ void TKWifiManager::handleOtaConfig() {
     const String  h  = tkwmNormHost_(_otaFileHost);
     const String& tk = _otaFileToken;
     const String  ntp = otaConfigNtp_();
+    const int16_t tzOffMin = otaConfigTzOffsetMin_();
     const bool    au = otaConfigAuto_();
     String        out;
     out.reserve(120 + h.length() + tk.length());
@@ -1411,6 +1467,10 @@ void TKWifiManager::handleOtaConfig() {
     tkwmAppJsonVal_(out, tk);
     out += F("\",\"ntp\":\"");
     tkwmAppJsonVal_(out, ntp);
+    out += F("\",\"tzOffsetMin\":");
+    out += String((int)tzOffMin);
+    out += F(",\"tzLabel\":\"");
+    tkwmAppJsonVal_(out, tkwmFmtTzOffset_(tzOffMin));
     out += F("\",\"auto\":");
     out += au ? "true" : "false";
     out += F(",\"hasCreds\":");
@@ -1445,6 +1505,9 @@ void TKWifiManager::handleOtaSaveSettings() {
     String ntpIn;
     if (tkwmJsonGetString(b, "ntp", ntpIn))
         _otaFileNtp = ntpIn;
+    String tzIn;
+    if (tkwmJsonGetString(b, "tzOffsetMin", tzIn))
+        _otaFileTzOffsetMin = tkwmParseTzOffsetMin_(tzIn);
 
     _prefs.begin("tkw_ota", false);
     _prefs.putBool("auto", au);
@@ -1469,6 +1532,8 @@ void TKWifiManager::writeOtaConf_(bool autoFlag) {
     f.println(_otaFileToken);
     f.print(F("ntp="));
     f.println(otaConfigNtp_());
+    f.print(F("tz="));
+    f.println(String((int)otaConfigTzOffsetMin_()));
     f.print(F("auto="));
     f.println(autoFlag ? "1" : "0");
     f.close();
@@ -1488,7 +1553,11 @@ void TKWifiManager::handleOtaSyncTime() {
     out += F(",\"ntp\":\"");
     tkwmAppJsonVal_(out, ntp);
     out += F("\",\"deviceTime\":\"");
-    tkwmAppJsonVal_(out, tkwmIsoTimeNowUtc_());
+    tkwmAppJsonVal_(out, tkwmIsoTimeNowWithOffset_(otaConfigTzOffsetMin_()));
+    out += F("\",\"tzOffsetMin\":");
+    out += String((int)otaConfigTzOffsetMin_());
+    out += F(",\"tzLabel\":\"");
+    tkwmAppJsonVal_(out, tkwmFmtTzOffset_(otaConfigTzOffsetMin_()));
     out += F("\"}");
     _server.send(200, "application/json", out);
 }
