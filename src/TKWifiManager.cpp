@@ -1487,41 +1487,16 @@ String TKWifiManager::readTimezoneListJson_() {
     if (!_fsOk) return "[]";
     if (!ensureTimezoneListCache_() && !TKWM_FS.exists(TKWM_TZ_CACHE_PATH)) return "[]";
     File f = TKWM_FS.open(TKWM_TZ_CACHE_PATH, "r");
-    if (!f) return "[]";
+    if (!f) return String(TKWM_LOCAL_TZ_FALLBACK_JSON);
+    if (f.size() > 65536) {
+        f.close();
+        return String(TKWM_LOCAL_TZ_FALLBACK_JSON);
+    }
     String s = f.readString();
     f.close();
     s.trim();
     if (s.startsWith("[")) return s;
-    // Поддержка файла формата GTZ: {"version":"...","zones":[{"name":"..."}]}
-    if (s.indexOf("\"zones\"") >= 0) {
-        String out = "[";
-        bool first = true;
-        int pos = 0;
-        while (true) {
-            int n = s.indexOf("\"name\"", pos);
-            if (n < 0) break;
-            int col = s.indexOf(':', n + 6);
-            if (col < 0) break;
-            int q1 = s.indexOf('\"', col + 1);
-            if (q1 < 0) break;
-            int q2 = s.indexOf('\"', q1 + 1);
-            if (q2 < 0) break;
-            String name = s.substring(q1 + 1, q2);
-            int cut = name.lastIndexOf("/undefined/");
-            if (cut >= 0) name = name.substring(cut + 11);
-            if (name.length()) {
-                if (!first) out += ",";
-                first = false;
-                out += "\"";
-                tkwmAppJsonVal_(out, name);
-                out += "\"";
-            }
-            pos = q2 + 1;
-        }
-        out += "]";
-        if (!first) return out;
-    }
-    // Невалидный/неподдерживаемый формат -> локальный fallback.
+    // Поддерживаем только готовый JSON-массив строк.
     return String(TKWM_LOCAL_TZ_FALLBACK_JSON);
 }
 
