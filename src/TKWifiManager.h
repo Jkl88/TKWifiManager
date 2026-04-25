@@ -64,6 +64,11 @@
 #define TKWM_RECONNECT_INTERVAL_MS 4000
 #endif
 
+/** Интервал «тяжёлой» перепривязки через scan + подбор профиля */
+#ifndef TKWM_FULL_SCAN_RECONNECT_MS
+#define TKWM_FULL_SCAN_RECONNECT_MS 20000
+#endif
+
 /** Время ожидания до возврата в AP при длительном оффлайне */
 #ifndef TKWM_STA_FAIL_TO_AP_MS
 #define TKWM_STA_FAIL_TO_AP_MS 25000
@@ -140,6 +145,7 @@ private:
     TaskHandle_t _bgTaskHandle = nullptr;
     int8_t _bgTaskCore = TKWM_TASK_CORE;
     uint32_t _lastReconnectAttemptMs = 0;
+    uint32_t _lastFullScanReconnectMs = 0;
     uint32_t _staLostSinceMs = 0;
     // upload (состояние multipart)
     File   _uploadFile;

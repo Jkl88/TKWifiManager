@@ -562,13 +562,21 @@ void TKWifiManager::serviceTick() {
         const bool connected = (WiFi.status() == WL_CONNECTED);
         if (connected) {
             _staLostSinceMs = 0;
+            _lastFullScanReconnectMs = 0;
         } else {
             if (_staLostSinceMs == 0) _staLostSinceMs = now;
             if (now - _lastReconnectAttemptMs >= TKWM_RECONNECT_INTERVAL_MS) {
                 _lastReconnectAttemptMs = now;
-                if (tryConnectBestKnown(12000) || tryConnectBySavedOrder(8000)) {
-                    _staLostSinceMs = 0;
-                    return;
+                // Сначала мягкая попытка восстановить уже известное STA-соединение.
+                WiFi.reconnect();
+
+                // Тяжёлый scan+switch делаем реже, чтобы не дестабилизировать линк.
+                if (_lastFullScanReconnectMs == 0 || (now - _lastFullScanReconnectMs) >= TKWM_FULL_SCAN_RECONNECT_MS) {
+                    _lastFullScanReconnectMs = now;
+                    if (tryConnectBestKnown(12000) || tryConnectBySavedOrder(8000)) {
+                        _staLostSinceMs = 0;
+                        return;
+                    }
                 }
             }
             if (_staLostSinceMs > 0 && (now - _staLostSinceMs) >= TKWM_STA_FAIL_TO_AP_MS) {
@@ -1831,12 +1839,9 @@ void TKWifiManager::wsSendStatus(uint8_t clientId) {
 }
 
 static void ensureWifiForScan_() {
-    // режим AP+STA (не выключаем AP)
-    wifi_mode_t cur;
-    esp_wifi_get_mode(&cur);
-    if (cur != WIFI_MODE_APSTA) {
-        esp_wifi_set_mode(WIFI_MODE_APSTA);
-    }
+    // Не трогаем текущий режим Wi-Fi, чтобы не ронять активное подключение.
+    // Для AP-сценария режим уже AP_STA, для STA — оставляем STA.
+
     // задать страну/политику — чтобы скан ходил по всем 1..13
     wifi_country_t ctry = {};
     strncpy((char*)ctry.cc, TKWM_WIFI_COUNTRY, sizeof(ctry.cc));
@@ -1848,9 +1853,6 @@ static void ensureWifiForScan_() {
     esp_wifi_set_country(&ctry);
     // выключим power save — скану так легче
     esp_wifi_set_ps(WIFI_PS_NONE);
-
-    // убедимся, что стек реально запущен
-    esp_wifi_start();
 }
 
 // --- основной сканер (три попытки) ---
