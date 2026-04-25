@@ -9,6 +9,26 @@
 
 static const char* TKWM_TZ_CACHE_PATH = "/timezones.json";
 static const uint32_t TKWM_AUTO_TIME_SYNC_INTERVAL_MS = 24UL * 60UL * 60UL * 1000UL;
+static const char* TKWM_LOCAL_TZ_FALLBACK_JSON =
+    "[\"UTC\",\"Europe/Moscow\",\"Europe/Kaliningrad\",\"Europe/Samara\",\"Europe/Volgograd\","
+    "\"Europe/London\",\"Europe/Berlin\",\"Europe/Paris\",\"Europe/Madrid\",\"Europe/Rome\","
+    "\"Europe/Amsterdam\",\"Europe/Prague\",\"Europe/Warsaw\",\"Europe/Kyiv\",\"Europe/Istanbul\","
+    "\"Asia/Yekaterinburg\",\"Asia/Omsk\",\"Asia/Novosibirsk\",\"Asia/Krasnoyarsk\",\"Asia/Irkutsk\","
+    "\"Asia/Yakutsk\",\"Asia/Vladivostok\",\"Asia/Magadan\",\"Asia/Kamchatka\",\"Asia/Sakhalin\","
+    "\"Asia/Almaty\",\"Asia/Bishkek\",\"Asia/Tashkent\",\"Asia/Dushanbe\",\"Asia/Ashgabat\","
+    "\"Asia/Baku\",\"Asia/Tbilisi\",\"Asia/Yerevan\",\"Asia/Tehran\",\"Asia/Dubai\","
+    "\"Asia/Karachi\",\"Asia/Kolkata\",\"Asia/Kathmandu\",\"Asia/Dhaka\",\"Asia/Bangkok\","
+    "\"Asia/Jakarta\",\"Asia/Singapore\",\"Asia/Shanghai\",\"Asia/Hong_Kong\",\"Asia/Tokyo\","
+    "\"Asia/Seoul\",\"Asia/Manila\",\"Asia/Taipei\",\"Asia/Kuala_Lumpur\",\"Asia/Ho_Chi_Minh\","
+    "\"Australia/Perth\",\"Australia/Adelaide\",\"Australia/Darwin\",\"Australia/Brisbane\","
+    "\"Australia/Sydney\",\"Australia/Melbourne\",\"Pacific/Auckland\",\"Pacific/Fiji\","
+    "\"Pacific/Honolulu\",\"Pacific/Guam\",\"America/Anchorage\",\"America/Los_Angeles\","
+    "\"America/Denver\",\"America/Phoenix\",\"America/Chicago\",\"America/New_York\","
+    "\"America/Toronto\",\"America/Halifax\",\"America/St_Johns\",\"America/Mexico_City\","
+    "\"America/Bogota\",\"America/Lima\",\"America/Santiago\",\"America/La_Paz\","
+    "\"America/Caracas\",\"America/Sao_Paulo\",\"America/Montevideo\",\"America/Buenos_Aires\","
+    "\"America/Godthab\",\"Africa/Cairo\",\"Africa/Johannesburg\",\"Africa/Nairobi\","
+    "\"Africa/Lagos\",\"Africa/Casablanca\",\"Africa/Algiers\"]";
 
 // Токен порта встроен в JS как число, чтобы встроенные HTML совпадали с макросом TKWM_WS_PORT
 #ifndef TKWM_XSTR
@@ -1455,40 +1475,10 @@ bool TKWifiManager::syncTimeWithNtp_(const String& ntpServer, uint32_t timeoutMs
 bool TKWifiManager::ensureTimezoneListCache_() {
     if (!_fsOk) return false;
     if (TKWM_FS.exists(TKWM_TZ_CACHE_PATH)) return true;
-    if (WiFi.status() != WL_CONNECTED) return false;
-
-    const char* urls[] = {
-        "https://timeapi.io/api/TimeZone/AvailableTimeZones",
-        "https://timeapi.io/api/timezone/availabletimezones"
-    };
-    String payload;
-    bool ok = false;
-    for (size_t i = 0; i < (sizeof(urls) / sizeof(urls[0])); ++i) {
-        HTTPClient http;
-        WiFiClientSecure tlsCl;
-#if TKWM_OTA_INSECURE
-        tlsCl.setInsecure();
-#endif
-        if (!http.begin(tlsCl, urls[i])) continue;
-        http.setConnectTimeout(10000);
-        http.setTimeout(15000);
-        const int code = http.GET();
-        if (code >= 200 && code < 300) {
-            payload = http.getString();
-            http.end();
-            payload.trim();
-            if (payload.startsWith("[")) {
-                ok = true;
-                break;
-            }
-        } else {
-            http.end();
-        }
-    }
-    if (!ok) return false;
+    // Локальная база: никаких сетевых запросов на список таймзон.
     File f = TKWM_FS.open(TKWM_TZ_CACHE_PATH, "w");
     if (!f) return false;
-    f.print(payload);
+    f.print(TKWM_LOCAL_TZ_FALLBACK_JSON);
     f.close();
     return true;
 }
@@ -1501,8 +1491,38 @@ String TKWifiManager::readTimezoneListJson_() {
     String s = f.readString();
     f.close();
     s.trim();
-    if (!s.startsWith("[")) return "[]";
-    return s;
+    if (s.startsWith("[")) return s;
+    // Поддержка файла формата GTZ: {"version":"...","zones":[{"name":"..."}]}
+    if (s.indexOf("\"zones\"") >= 0) {
+        String out = "[";
+        bool first = true;
+        int pos = 0;
+        while (true) {
+            int n = s.indexOf("\"name\"", pos);
+            if (n < 0) break;
+            int col = s.indexOf(':', n + 6);
+            if (col < 0) break;
+            int q1 = s.indexOf('\"', col + 1);
+            if (q1 < 0) break;
+            int q2 = s.indexOf('\"', q1 + 1);
+            if (q2 < 0) break;
+            String name = s.substring(q1 + 1, q2);
+            int cut = name.lastIndexOf("/undefined/");
+            if (cut >= 0) name = name.substring(cut + 11);
+            if (name.length()) {
+                if (!first) out += ",";
+                first = false;
+                out += "\"";
+                tkwmAppJsonVal_(out, name);
+                out += "\"";
+            }
+            pos = q2 + 1;
+        }
+        out += "]";
+        if (!first) return out;
+    }
+    // Невалидный/неподдерживаемый формат -> локальный fallback.
+    return String(TKWM_LOCAL_TZ_FALLBACK_JSON);
 }
 
 bool TKWifiManager::fetchTimezoneOffsetMin_(const String& timezone, int16_t& outMin) {
